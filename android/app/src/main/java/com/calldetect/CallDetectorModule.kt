@@ -21,6 +21,12 @@ class CallDetectorModule(reactContext: ReactApplicationContext) :
         return "CallDetector"
     }
 
+    override fun initialize() {
+    super.initialize()
+    ReactApplicationContextHolder.reactContext = reactApplicationContext
+}
+
+
     @ReactMethod
     fun startListening() {
         val context = reactApplicationContext

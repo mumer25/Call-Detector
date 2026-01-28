@@ -6,6 +6,7 @@
 <uses-permission android:name="android.permission.READ_CALL_LOG"/>
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+<uses-permission android:name="android.permission.READ_CONTACTS"/>
 
 
     <application
@@ -33,6 +34,15 @@
       <service
   android:name=".CallService"
   android:foregroundServiceType="phoneCall" />
+
+ <receiver
+    android:name="com.calldetect.CallReceiver"
+    android:exported="true">
+    <intent-filter>
+        <action android:name="android.intent.action.PHONE_STATE" />
+    </intent-filter>
+</receiver>
+
 
     </application>
 </manifest>
