@@ -95,7 +95,7 @@ export default function App(): JSX.Element {
           <Text style={styles.callTime}>{item.time}</Text>
         </View>
         <View style={styles.durationBadge}>
-          <Text style={styles.durationText}>{item.duration}s</Text>
+          <Text style={styles.durationText}>{item.duration}s ⏱</Text>
         </View>
       </View>
     </View>
