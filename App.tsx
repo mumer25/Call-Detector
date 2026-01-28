@@ -1,45 +1,93 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import { NewAppScreen } from '@react-native/new-app-screen';
-import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
+import React, { useEffect, useState } from "react";
 import {
-  SafeAreaProvider,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+  NativeModules,
+  NativeEventEmitter,
+  PermissionsAndroid,
+  View,
+  Text,
+  FlatList,
+  Platform,
+  StyleSheet,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-function App() {
-  const isDarkMode = useColorScheme() === 'dark';
+type CallLog = {
+  id: string;
+  duration: number;
+  time: string;
+};
 
-  return (
-    <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <AppContent />
-    </SafeAreaProvider>
-  );
-}
+type CallEvent = {
+  state: "Incoming" | "Connected" | "Disconnected";
+  number?: string;
+  duration?: number;
+};
 
-function AppContent() {
-  const safeAreaInsets = useSafeAreaInsets();
+const { CallDetector } = NativeModules;
+const emitter = new NativeEventEmitter(CallDetector);
+
+export default function App(): JSX.Element {
+  const [logs, setLogs] = useState<CallLog[]>([]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+
+    requestPermissions().then(() => {
+      loadLogs();
+      CallDetector.startListening();
+    });
+
+    const subscription = emitter.addListener("CallEvent", async (data: CallEvent) => {
+      if (data.state === "Disconnected" && data.duration) {
+        const log: CallLog = {
+          id: Date.now().toString(),
+          duration: data.duration,
+          time: new Date().toLocaleString(),
+        };
+
+        setLogs(prev => {
+          const updated = [log, ...prev];
+          AsyncStorage.setItem("logs", JSON.stringify(updated));
+          return updated;
+        });
+      }
+    });
+
+    return () => {
+      subscription.remove();
+      CallDetector.stopListening?.();
+    };
+  }, []);
+
+  const requestPermissions = async () => {
+    await PermissionsAndroid.requestMultiple([
+      PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
+      PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+    ]);
+  };
+
+  const loadLogs = async () => {
+    const saved = await AsyncStorage.getItem("logs");
+    if (saved) setLogs(JSON.parse(saved));
+  };
 
   return (
     <View style={styles.container}>
-      <NewAppScreen
-        templateFileName="App.tsx"
-        safeAreaInsets={safeAreaInsets}
+      <Text style={styles.title}>📞 Call History</Text>
+      <FlatList
+        data={logs}
+        keyExtractor={item => item.id}
+        renderItem={({ item }) => (
+          <Text style={styles.logItem}>⏱ {item.duration}s — {item.time}</Text>
+        )}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { padding: 20 },
+  title: { fontSize: 22, fontWeight: "bold" },
+  logItem: { marginTop: 10 },
 });
-
-export default App;
