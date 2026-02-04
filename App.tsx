@@ -1,20 +1,54 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from "react-native";
+import { BackHandler } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // ✅ Import AsyncStorage
 
 import LeadsScreen from "./src/screens/LeadsScreen";
-import DialerScreen from "./src/screens/DialerScreen";
+import DialerScreen, { Lead } from "./src/screens/DialerScreen"; // Import Lead type
 import HistoryScreen from "./src/screens/HistoryScreen";
 import { startCallListener } from "./src/utils/CallRecorder";
+import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+import ReportsScreen from "./src/screens/ReportsScreen";
 
-type Tab = "leads" | "dialer" | "history";
+type Tab = "leads" | "dialer" | "history" | "reports";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("leads");
   const [selectedPhone, setSelectedPhone] = useState<string>("");
+  const [leads, setLeads] = useState<Lead[]>([]); // store leads globally
+  const leadsTitle = "CRM Dashboard";
+
+  useEffect(() => {
+  const backAction = () => {
+    if (activeTab !== "leads") {
+      setActiveTab("leads"); // Go back to leads tab
+      return true; // Prevent default behavior (exit app)
+    }
+    return false; // Allow default behavior (exit app)
+  };
+
+  const backHandler = BackHandler.addEventListener(
+    "hardwareBackPress",
+    backAction
+  );
+
+  return () => backHandler.remove(); // Clean up
+}, [activeTab]);
+
 
   useEffect(() => {
     startCallListener(); // Start listening to native call events
+
+    // Load leads from AsyncStorage on app start
+    const loadLeads = async () => {
+      try {
+        const saved = await AsyncStorage.getItem("leads");
+        if (saved) setLeads(JSON.parse(saved));
+      } catch {}
+    };
+
+    loadLeads();
   }, []);
 
   const handleSelectLead = (phone: string) => {
@@ -22,13 +56,18 @@ export default function App() {
     setActiveTab("dialer");
   };
 
-  const getTitle = () => {
-    switch (activeTab) {
-      case "dialer": return "Dialer";
-      case "history": return "Call History";
-      default: return "Leads";
-    }
-  };
+const getTitle = () => {
+  switch (activeTab) {
+    case "dialer": 
+      return "Dialer";
+    case "history": 
+      return "Call History";
+      case "reports": 
+      return "Reports";
+    default: 
+      return leadsTitle;
+  }
+};
 
   return (
     <SafeAreaView style={styles.container}>
@@ -37,9 +76,10 @@ export default function App() {
       {/* HEADER */}
       <View style={styles.header}>
         {activeTab !== "leads" ? (
-          <TouchableOpacity style={styles.backBtn} onPress={() => setActiveTab("leads")}>
-            <Text style={styles.backText}>‹ Back</Text>
-          </TouchableOpacity>
+         <TouchableOpacity style={styles.backBtn} onPress={() => setActiveTab("leads")}>
+  <MaterialIcons name="arrow-back-ios" size={20} color="#1abc9c" />
+  <Text style={styles.backText}>Back</Text>
+</TouchableOpacity>
         ) : (
           <View style={styles.backPlaceholder} />
         )}
@@ -53,13 +93,23 @@ export default function App() {
         {activeTab === "leads" && (
           <LeadsScreen
             onSelectLead={handleSelectLead}
-            onOpenDialer={() => setActiveTab("dialer")}
+            onOpenReport={() => setActiveTab("reports")}
             onOpenHistory={() => setActiveTab("history")}
+            // ✅ Only pass props that LeadsScreen expects
+            // If your LeadsScreen type doesn't include leads/setLeads, don't pass them
           />
         )}
 
-        {activeTab === "dialer" && <DialerScreen phone={selectedPhone} />}
+        {activeTab === "dialer" && (
+          <DialerScreen
+            phone={selectedPhone}
+            leads={leads}               // pass full leads
+            onSelectLead={handleSelectLead} // pass handler to switch leads
+          />
+        )}
+
         {activeTab === "history" && <HistoryScreen />}
+        {activeTab === "reports" && <ReportsScreen />}
       </View>
     </SafeAreaView>
   );
@@ -87,12 +137,16 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  backBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: "#e0f7f4",
-  },
+ backBtn: {
+  flexDirection: "row",   // icon and text in a row
+  alignItems: "center",   // vertically center
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+  borderRadius: 8,
+  backgroundColor: "#e0f7f4",
+  gap: 4,                 // space between icon and text
+},
+
 
   backText: {
     fontSize: 16,
@@ -114,6 +168,126 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
+
+
+
+// import React, { useEffect, useState } from "react";
+// import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from "react-native";
+// import { SafeAreaView } from "react-native-safe-area-context";
+
+// import LeadsScreen from "./src/screens/LeadsScreen";
+// import DialerScreen from "./src/screens/DialerScreen";
+// import HistoryScreen from "./src/screens/HistoryScreen";
+// import { startCallListener } from "./src/utils/CallRecorder";
+
+// type Tab = "leads" | "dialer" | "history";
+
+// export default function App() {
+//   const [activeTab, setActiveTab] = useState<Tab>("leads");
+//   const [selectedPhone, setSelectedPhone] = useState<string>("");
+
+//   useEffect(() => {
+//     startCallListener(); // Start listening to native call events
+//   }, []);
+
+//   const handleSelectLead = (phone: string) => {
+//     setSelectedPhone(phone);
+//     setActiveTab("dialer");
+//   };
+
+//   const getTitle = () => {
+//     switch (activeTab) {
+//       case "dialer": return "Dialer";
+//       case "history": return "Call History";
+//       default: return "Leads";
+//     }
+//   };
+
+//   return (
+//     <SafeAreaView style={styles.container}>
+//       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+//       {/* HEADER */}
+//       <View style={styles.header}>
+//         {activeTab !== "leads" ? (
+//           <TouchableOpacity style={styles.backBtn} onPress={() => setActiveTab("leads")}>
+//             <Text style={styles.backText}>‹ Back</Text>
+//           </TouchableOpacity>
+//         ) : (
+//           <View style={styles.backPlaceholder} />
+//         )}
+
+//         <Text style={styles.title}>{getTitle()}</Text>
+//         <View style={styles.backPlaceholder} />
+//       </View>
+
+//       {/* MAIN CONTENT */}
+//       <View style={styles.content}>
+//         {activeTab === "leads" && (
+//           <LeadsScreen
+//             onSelectLead={handleSelectLead}
+//             onOpenDialer={() => setActiveTab("dialer")}
+//             onOpenHistory={() => setActiveTab("history")}
+//           />
+//         )}
+
+//         {activeTab === "dialer" && <DialerScreen phone={selectedPhone} />}
+//         {activeTab === "history" && <HistoryScreen />}
+//       </View>
+//     </SafeAreaView>
+//   );
+// }
+
+// const styles = StyleSheet.create({
+//   container: {
+//     flex: 1,
+//     backgroundColor: "#f0f4f7",
+//   },
+
+//   header: {
+//     height: 64,
+//     backgroundColor: "#ffffff",
+//     flexDirection: "row",
+//     alignItems: "center",
+//     justifyContent: "space-between",
+//     paddingHorizontal: 16,
+//     borderBottomWidth: 1,
+//     borderBottomColor: "#e0e0e0",
+//     shadowColor: "#000",
+//     shadowOpacity: 0.05,
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowRadius: 4,
+//     elevation: 2,
+//   },
+
+//   backBtn: {
+//     paddingVertical: 8,
+//     paddingHorizontal: 12,
+//     borderRadius: 8,
+//     backgroundColor: "#e0f7f4",
+//   },
+
+//   backText: {
+//     fontSize: 16,
+//     fontWeight: "600",
+//     color: "#1abc9c",
+//   },
+
+//   backPlaceholder: { width: 68 }, // Same width as backBtn
+
+//   title: {
+//     flex: 1,
+//     textAlign: "center",
+//     fontSize: 20,
+//     fontWeight: "700",
+//     color: "#2c3e50",
+//   },
+
+//   content: {
+//     flex: 1,
+//   },
+// });
 
 
 
