@@ -1,51 +1,52 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from "react-native";
-import { BackHandler } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, BackHandler } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage"; // ✅ Import AsyncStorage
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import LeadsScreen from "./src/screens/LeadsScreen";
-import DialerScreen, { Lead } from "./src/screens/DialerScreen"; // Import Lead type
+import DialerScreen, { Lead } from "./src/screens/DialerScreen";
 import HistoryScreen from "./src/screens/HistoryScreen";
+import ReportsScreen from "./src/screens/ReportsScreen";
 import { startCallListener } from "./src/utils/CallRecorder";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import ReportsScreen from "./src/screens/ReportsScreen";
 
 type Tab = "leads" | "dialer" | "history" | "reports";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("leads");
   const [selectedPhone, setSelectedPhone] = useState<string>("");
-  const [leads, setLeads] = useState<Lead[]>([]); // store leads globally
+  const [leads, setLeads] = useState<Lead[]>([]);
   const leadsTitle = "CRM Dashboard";
 
+  // Handle Android back button
   useEffect(() => {
-  const backAction = () => {
-    if (activeTab !== "leads") {
-      setActiveTab("leads"); // Go back to leads tab
-      return true; // Prevent default behavior (exit app)
-    }
-    return false; // Allow default behavior (exit app)
-  };
+    const backAction = () => {
+      if (activeTab !== "leads") {
+        setActiveTab("leads");
+        return true;
+      }
+      return false;
+    };
 
-  const backHandler = BackHandler.addEventListener(
-    "hardwareBackPress",
-    backAction
-  );
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      backAction
+    );
 
-  return () => backHandler.remove(); // Clean up
-}, [activeTab]);
+    return () => backHandler.remove();
+  }, [activeTab]);
 
-
+  // Load leads and start call listener
   useEffect(() => {
-    startCallListener(); // Start listening to native call events
+    startCallListener();
 
-    // Load leads from AsyncStorage on app start
     const loadLeads = async () => {
       try {
         const saved = await AsyncStorage.getItem("leads");
         if (saved) setLeads(JSON.parse(saved));
-      } catch {}
+      } catch (e) {
+        console.warn("Failed to load leads:", e);
+      }
     };
 
     loadLeads();
@@ -56,18 +57,18 @@ export default function App() {
     setActiveTab("dialer");
   };
 
-const getTitle = () => {
-  switch (activeTab) {
-    case "dialer": 
-      return "Dialer";
-    case "history": 
-      return "Call History";
-      case "reports": 
-      return "Reports";
-    default: 
-      return leadsTitle;
-  }
-};
+  const getTitle = () => {
+    switch (activeTab) {
+      case "dialer":
+        return "Dialer";
+      case "history":
+        return "Call History";
+      case "reports":
+        return "Reports";
+      default:
+        return leadsTitle;
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -76,10 +77,10 @@ const getTitle = () => {
       {/* HEADER */}
       <View style={styles.header}>
         {activeTab !== "leads" ? (
-         <TouchableOpacity style={styles.backBtn} onPress={() => setActiveTab("leads")}>
-  <MaterialIcons name="arrow-back-ios" size={20} color="#1abc9c" />
-  <Text style={styles.backText}>Back</Text>
-</TouchableOpacity>
+          <TouchableOpacity style={styles.backBtn} onPress={() => setActiveTab("leads")}>
+            <MaterialIcons name="arrow-back-ios" size={20} color="#1abc9c" />
+            <Text style={styles.backText}>Back</Text>
+          </TouchableOpacity>
         ) : (
           <View style={styles.backPlaceholder} />
         )}
@@ -95,26 +96,82 @@ const getTitle = () => {
             onSelectLead={handleSelectLead}
             onOpenReport={() => setActiveTab("reports")}
             onOpenHistory={() => setActiveTab("history")}
-            // ✅ Only pass props that LeadsScreen expects
-            // If your LeadsScreen type doesn't include leads/setLeads, don't pass them
           />
         )}
 
         {activeTab === "dialer" && (
           <DialerScreen
             phone={selectedPhone}
-            leads={leads}               // pass full leads
-            onSelectLead={handleSelectLead} // pass handler to switch leads
+            leads={leads}
+            onSelectLead={handleSelectLead}
           />
         )}
 
         {activeTab === "history" && <HistoryScreen />}
         {activeTab === "reports" && <ReportsScreen />}
       </View>
+
+      {/* BOTTOM TABS - always visible */}
+      <BottomTabs activeTab={activeTab} setActiveTab={setActiveTab} />
     </SafeAreaView>
   );
 }
 
+// Bottom Tabs Component
+type BottomTabProps = {
+  activeTab: Tab;
+  setActiveTab: (tab: Tab) => void;
+};
+
+const BottomTabs: React.FC<BottomTabProps> = ({ activeTab, setActiveTab }) => {
+  return (
+    <View style={styles.bottomTabs}>
+      <TouchableOpacity
+        style={[styles.tabButton, activeTab === "leads" && styles.tabActive]}
+        onPress={() => setActiveTab("leads")}
+      >
+        <MaterialIcons
+          name="home"
+          size={24}
+          color={activeTab === "leads" ? "#1abc9c" : "#7f8c8d"}
+        />
+        <Text style={[styles.tabText, activeTab === "leads" && styles.tabTextActive]}>
+          Leads
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.tabButton, activeTab === "history" && styles.tabActive]}
+        onPress={() => setActiveTab("history")}
+      >
+        <MaterialIcons
+          name="history"
+          size={24}
+          color={activeTab === "history" ? "#1abc9c" : "#7f8c8d"}
+        />
+        <Text style={[styles.tabText, activeTab === "history" && styles.tabTextActive]}>
+          History
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.tabButton, activeTab === "reports" && styles.tabActive]}
+        onPress={() => setActiveTab("reports")}
+      >
+        <MaterialIcons
+          name="bar-chart"
+          size={24}
+          color={activeTab === "reports" ? "#1abc9c" : "#7f8c8d"}
+        />
+        <Text style={[styles.tabText, activeTab === "reports" && styles.tabTextActive]}>
+          Reports
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+// STYLES
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -137,16 +194,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
- backBtn: {
-  flexDirection: "row",   // icon and text in a row
-  alignItems: "center",   // vertically center
-  paddingVertical: 8,
-  paddingHorizontal: 12,
-  borderRadius: 8,
-  backgroundColor: "#e0f7f4",
-  gap: 4,                 // space between icon and text
-},
-
+  backBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: "#e0f7f4",
+    gap: 4,
+  },
 
   backText: {
     fontSize: 16,
@@ -154,7 +210,7 @@ const styles = StyleSheet.create({
     color: "#1abc9c",
   },
 
-  backPlaceholder: { width: 68 }, // Same width as backBtn
+  backPlaceholder: { width: 68 },
 
   title: {
     flex: 1,
@@ -167,7 +223,219 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+
+  bottomTabs: {
+    height: 60,
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#e0e0e0",
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: -2 },
+    shadowRadius: 4,
+    elevation: 5,
+  },
+
+  tabButton: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+
+  tabActive: {
+    backgroundColor: "#e0f7f4",
+    borderRadius: 8,
+  },
+
+  tabText: {
+    fontSize: 12,
+    color: "#7f8c8d",
+    marginTop: 2,
+  },
+
+  tabTextActive: {
+    color: "#1abc9c",
+    fontWeight: "700",
+  },
 });
+
+
+
+
+// import React, { useEffect, useState } from "react";
+// import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from "react-native";
+// import { BackHandler } from "react-native";
+// import { SafeAreaView } from "react-native-safe-area-context";
+// import AsyncStorage from "@react-native-async-storage/async-storage"; // ✅ Import AsyncStorage
+
+// import LeadsScreen from "./src/screens/LeadsScreen";
+// import DialerScreen, { Lead } from "./src/screens/DialerScreen"; // Import Lead type
+// import HistoryScreen from "./src/screens/HistoryScreen";
+// import { startCallListener } from "./src/utils/CallRecorder";
+// import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+// import ReportsScreen from "./src/screens/ReportsScreen";
+
+// type Tab = "leads" | "dialer" | "history" | "reports";
+
+// export default function App() {
+//   const [activeTab, setActiveTab] = useState<Tab>("leads");
+//   const [selectedPhone, setSelectedPhone] = useState<string>("");
+//   const [leads, setLeads] = useState<Lead[]>([]); // store leads globally
+//   const leadsTitle = "CRM Dashboard";
+
+//   useEffect(() => {
+//   const backAction = () => {
+//     if (activeTab !== "leads") {
+//       setActiveTab("leads"); // Go back to leads tab
+//       return true; // Prevent default behavior (exit app)
+//     }
+//     return false; // Allow default behavior (exit app)
+//   };
+
+//   const backHandler = BackHandler.addEventListener(
+//     "hardwareBackPress",
+//     backAction
+//   );
+
+//   return () => backHandler.remove(); // Clean up
+// }, [activeTab]);
+
+
+//   useEffect(() => {
+//     startCallListener(); // Start listening to native call events
+
+//     // Load leads from AsyncStorage on app start
+//     const loadLeads = async () => {
+//       try {
+//         const saved = await AsyncStorage.getItem("leads");
+//         if (saved) setLeads(JSON.parse(saved));
+//       } catch {}
+//     };
+
+//     loadLeads();
+//   }, []);
+
+//   const handleSelectLead = (phone: string) => {
+//     setSelectedPhone(phone);
+//     setActiveTab("dialer");
+//   };
+
+// const getTitle = () => {
+//   switch (activeTab) {
+//     case "dialer": 
+//       return "Dialer";
+//     case "history": 
+//       return "Call History";
+//       case "reports": 
+//       return "Reports";
+//     default: 
+//       return leadsTitle;
+//   }
+// };
+
+//   return (
+//     <SafeAreaView style={styles.container}>
+//       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+//       {/* HEADER */}
+//       <View style={styles.header}>
+//         {activeTab !== "leads" ? (
+//          <TouchableOpacity style={styles.backBtn} onPress={() => setActiveTab("leads")}>
+//   <MaterialIcons name="arrow-back-ios" size={20} color="#1abc9c" />
+//   <Text style={styles.backText}>Back</Text>
+// </TouchableOpacity>
+//         ) : (
+//           <View style={styles.backPlaceholder} />
+//         )}
+
+//         <Text style={styles.title}>{getTitle()}</Text>
+//         <View style={styles.backPlaceholder} />
+//       </View>
+
+//       {/* MAIN CONTENT */}
+//       <View style={styles.content}>
+//         {activeTab === "leads" && (
+//           <LeadsScreen
+//             onSelectLead={handleSelectLead}
+//             onOpenReport={() => setActiveTab("reports")}
+//             onOpenHistory={() => setActiveTab("history")}
+//             // ✅ Only pass props that LeadsScreen expects
+//             // If your LeadsScreen type doesn't include leads/setLeads, don't pass them
+//           />
+//         )}
+
+//         {activeTab === "dialer" && (
+//           <DialerScreen
+//             phone={selectedPhone}
+//             leads={leads}               // pass full leads
+//             onSelectLead={handleSelectLead} // pass handler to switch leads
+//           />
+//         )}
+
+//         {activeTab === "history" && <HistoryScreen />}
+//         {activeTab === "reports" && <ReportsScreen />}
+//       </View>
+//     </SafeAreaView>
+//   );
+// }
+
+// const styles = StyleSheet.create({
+//   container: {
+//     flex: 1,
+//     backgroundColor: "#f0f4f7",
+//   },
+
+//   header: {
+//     height: 64,
+//     backgroundColor: "#ffffff",
+//     flexDirection: "row",
+//     alignItems: "center",
+//     justifyContent: "space-between",
+//     paddingHorizontal: 16,
+//     borderBottomWidth: 1,
+//     borderBottomColor: "#e0e0e0",
+//     shadowColor: "#000",
+//     shadowOpacity: 0.05,
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowRadius: 4,
+//     elevation: 2,
+//   },
+
+//  backBtn: {
+//   flexDirection: "row",   // icon and text in a row
+//   alignItems: "center",   // vertically center
+//   paddingVertical: 8,
+//   paddingHorizontal: 12,
+//   borderRadius: 8,
+//   backgroundColor: "#e0f7f4",
+//   gap: 4,                 // space between icon and text
+// },
+
+
+//   backText: {
+//     fontSize: 16,
+//     fontWeight: "600",
+//     color: "#1abc9c",
+//   },
+
+//   backPlaceholder: { width: 68 }, // Same width as backBtn
+
+//   title: {
+//     flex: 1,
+//     textAlign: "center",
+//     fontSize: 20,
+//     fontWeight: "700",
+//     color: "#2c3e50",
+//   },
+
+//   content: {
+//     flex: 1,
+//   },
+// });
 
 
 
