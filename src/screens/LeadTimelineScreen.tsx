@@ -1,137 +1,111 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  ActivityIndicator,
-  SafeAreaView,
   TouchableOpacity,
+  ActivityIndicator,
+  TextInput,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import FontAwesome from "react-native-vector-icons/FontAwesome";
-import Ionicons from "react-native-vector-icons/Ionicons";
+import { getLeads } from "../db/database";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-type CallLog = {
-  id: string;
-  number: string;
-  type: "incoming" | "outgoing" | "whatsapp" | "followup";
-  status?: string;
-  time: string;
-  note?: string;
+type Lead = {
+  id: number;
+  name: string;
+  phone: string;
 };
 
 type Props = {
-  route: { params: { phone: string; leadName: string } };
-  onBack: () => void;
+  onOpenTimeline: (phone: string, name: string) => void;
 };
 
-export default function LeadTimelineScreen({ route, onBack }: Props) {
-  const { phone, leadName } = route.params;
-  const [logs, setLogs] = useState<CallLog[]>([]);
+export default function LeadsTimelineScreen({ onOpenTimeline }: Props) {
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [filteredLeads, setFilteredLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Normalizes numbers to last 10 digits for matching
-  const normalize = (num: string) => {
-    const digits = num.replace(/\D/g, "");
-    return digits.length > 10 ? digits.slice(-10) : digits;
-  };
-
-  const loadDataFromStorage = useCallback(async () => {
-    setLoading(true);
-    try {
-      const savedLogs = await AsyncStorage.getItem("logs");
-      let allLogs: CallLog[] = savedLogs ? JSON.parse(savedLogs) : [];
-
-      // Generate dummy data if storage is completely empty (for initial testing)
-      if (allLogs.length === 0) {
-        allLogs = [
-          { id: "1", number: "03229199459", type: "outgoing", status: "Answered", time: "10:30 AM", note: "Customer interested in premium plan." },
-          { id: "2", number: "03229199459", type: "whatsapp", status: "Message Sent", time: "11:00 AM", note: "Sent the catalog." },
-          { id: "3", number: "03001234567", type: "incoming", status: "Missed", time: "01:15 PM" },
-        ];
-        await AsyncStorage.setItem("logs", JSON.stringify(allLogs));
-      }
-
-      const targetPhone = normalize(phone);
-      const filtered = allLogs.filter(log => normalize(log.number) === targetPhone);
-
-      // Sort: Newest logs at top
-      setLogs(filtered.reverse());
-    } catch (e) {
-      console.error("Timeline Load Error:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [phone]);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    loadDataFromStorage();
-  }, [loadDataFromStorage]);
+    const loadLeads = async () => {
+      try {
+        const data = await getLeads();
+        setLeads(data);
+        setFilteredLeads(data);
+      } catch (e) {
+        console.error("Failed to load leads:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const getIcon = (type: CallLog["type"]) => {
-    switch (type) {
-      case "whatsapp": return <FontAwesome name="whatsapp" size={24} color="#3b5353" />;
-      case "followup": return <MaterialIcons name="event-note" size={24} color="#3b5353" />;
-      default: return <Ionicons name="call-outline" size={24} color="#3b5353" />;
-    }
-  };
+    loadLeads();
+  }, []);
+
+  // Filter leads based on search
+  useEffect(() => {
+    const query = searchQuery.toLowerCase();
+    const filtered = leads.filter(
+      (lead) =>
+        lead.name.toLowerCase().includes(query) ||
+        lead.phone.includes(query)
+    );
+    setFilteredLeads(filtered);
+  }, [searchQuery, leads]);
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* HEADER: Matching your dark teal screenshot */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.menuBtn}>
-          <MaterialIcons name="menu" size={28} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{leadName || phone}</Text>
+      {/* <Text style={styles.heading}>Leads Timeline</Text> */}
+
+      {/* SEARCH BAR WITH ICON */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          placeholder="Search leads by name or phone..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          style={styles.searchInput}
+          clearButtonMode="while-editing"
+        />
+        <MaterialIcons
+          name="search"
+          size={24}
+          color="#7f8c8d"
+          style={styles.searchIcon}
+        />
       </View>
 
       {loading ? (
-        <ActivityIndicator size="large" color="#3b5353" style={styles.loader} />
+        <ActivityIndicator size="large" color="#3b5353" />
       ) : (
-        <ScrollView 
-          contentContainerStyle={styles.timelineContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          {logs.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <MaterialIcons name="history" size={80} color="#a0bcbc" />
-              <Text style={styles.emptyText}>No interaction history found.</Text>
-            </View>
-          ) : (
-            logs.map((item, index) => (
-              <View key={item.id || index} style={styles.timelineRow}>
-                {/* Vertical Spine and Icon */}
-                <View style={styles.leftColumn}>
-                  <View style={styles.iconCircle}>
-                    {getIcon(item.type)}
-                  </View>
-                  {index !== logs.length - 1 && <View style={styles.verticalLine} />}
-                </View>
-
-                {/* Information Card */}
-                <View style={styles.card}>
-                  <Text style={styles.cardTitle}>
-                    {item.status || (item.type === "whatsapp" ? "WhatsApp" : "Call")}
-                  </Text>
-                  
-                  <View style={styles.timeContainer}>
-                    <Ionicons name="time-outline" size={14} color="#7f8c8d" />
-                    <Text style={styles.timeText}>{item.time}</Text>
-                  </View>
-
-                  {item.note && (
-                    <View style={styles.noteBox}>
-                      <Text style={styles.noteText}>{item.note}</Text>
-                    </View>
-                  )}
-                </View>
+        <ScrollView>
+          {filteredLeads.map((lead) => (
+            <TouchableOpacity
+              key={lead.id}
+              style={styles.leadCard}
+              onPress={() => onOpenTimeline(lead.phone, lead.name)}
+            >
+              <View style={styles.avatar}>
+                <MaterialIcons name="person" size={26} color="#fff" />
               </View>
-            ))
+
+              <View style={styles.info}>
+                <Text style={styles.name}>{lead.name}</Text>
+                <Text style={styles.phone}>{lead.phone}</Text>
+              </View>
+
+              <MaterialIcons
+                name="chevron-right"
+                size={26}
+                color="#7f8c8d"
+              />
+            </TouchableOpacity>
+          ))}
+
+          {filteredLeads.length === 0 && (
+            <Text style={styles.emptyText}>No leads found</Text>
           )}
-          <View style={styles.footerSpacer} />
         </ScrollView>
       )}
     </SafeAreaView>
@@ -139,64 +113,53 @@ export default function LeadTimelineScreen({ route, onBack }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#d1e7e7" },
-  header: {
-    backgroundColor: "#3b5353",
-    height: 70,
+  container: { flex: 1, backgroundColor: "#d1e7e7", padding: 16 },
+  heading: {
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: 10,
+    color: "#2c3e50",
+  },
+  searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 15,
-    elevation: 5,
-  },
-  menuBtn: { padding: 5 },
-  headerTitle: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "bold",
-    marginLeft: 15,
-  },
-  loader: { marginTop: 100 },
-  timelineContainer: { paddingHorizontal: 20, paddingTop: 30 },
-  timelineRow: { flexDirection: "row", minHeight: 110 },
-  leftColumn: { alignItems: "center", width: 60 },
-  iconCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
     backgroundColor: "#fff",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 2,
-    elevation: 4,
+    borderRadius: 12,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    elevation: 2,
   },
-  verticalLine: {
-    position: "absolute",
-    top: 54,
-    bottom: 0,
-    width: 3,
-    backgroundColor: "#3b5353",
-    zIndex: 1,
-  },
-  card: {
+  searchInput: {
     flex: 1,
+    fontSize: 14,
+    paddingVertical: 8,
+  },
+  searchIcon: {
+    marginLeft: 8,
+  },
+  leadCard: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#fff",
-    marginLeft: 15,
-    marginBottom: 30,
-    borderRadius: 15,
-    padding: 18,
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 12,
     elevation: 3,
   },
-  cardTitle: { fontSize: 22, fontWeight: "bold", color: "#333" },
-  timeContainer: { flexDirection: "row", alignItems: "center", marginTop: 5 },
-  timeText: { fontSize: 13, color: "#7f8c8d", marginLeft: 5 },
-  noteBox: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#1abc9c",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  noteText: { fontSize: 14, color: "#555", lineHeight: 20 },
-  emptyContainer: { alignItems: "center", marginTop: 100 },
-  emptyText: { marginTop: 15, color: "#3b5353", fontSize: 16, fontWeight: "500" },
-  footerSpacer: { height: 100 },
+  info: { flex: 1, marginLeft: 12 },
+  name: { fontSize: 16, fontWeight: "600", color: "#333" },
+  phone: { fontSize: 13, color: "#7f8c8d", marginTop: 2 },
+  emptyText: {
+    textAlign: "center",
+    marginTop: 50,
+    color: "#7f8c8d",
+  },
 });

@@ -1,21 +1,25 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, StatusBar, BackHandler } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { initDB, getLeads } from "./src/db/database";
 
 import LeadsScreen from "./src/screens/LeadsScreen";
 import DialerScreen, { Lead } from "./src/screens/DialerScreen";
 import HistoryScreen from "./src/screens/HistoryScreen";
 import ReportsScreen from "./src/screens/ReportsScreen";
-import LeadTimelineScreen from "./src/screens/LeadTimelineScreen";
 import { startCallListener } from "./src/utils/CallRecorder";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+import LeadsTimelineScreen from "./src/screens/LeadTimelineScreen";
+import TimelineScreen from "./src/screens/TimelineScreen";
 
-type Tab = "leads" | "dialer" | "history" | "reports" | "timeline";
+// type Tab = "leads" | "dialer" | "history" | "reports" | "timeline";
+type Tab = "leads" | "dialer" | "history" | "reports" | "timeline" | "timelineDetail";
+
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("leads");
   const [selectedPhone, setSelectedPhone] = useState<string>("");
+  const [selectedLeadName, setSelectedLeadName] = useState<string>("");
   const [leads, setLeads] = useState<Lead[]>([]);
   const leadsTitle = "CRM Dashboard";
 
@@ -39,24 +43,27 @@ export default function App() {
 
   // Load leads and start call listener
   useEffect(() => {
-    startCallListener();
+  startCallListener();
 
-    const loadLeads = async () => {
-      try {
-        const saved = await AsyncStorage.getItem("leads");
-        if (saved) setLeads(JSON.parse(saved));
-      } catch (e) {
-        console.warn("Failed to load leads:", e);
-      }
-    };
-
-    loadLeads();
-  }, []);
-
-  const handleSelectLead = (phone: string) => {
-    setSelectedPhone(phone);
-    setActiveTab("dialer");
+  const loadLeads = async () => {
+    try {
+      await initDB(); // initialize SQLite DB
+      const dbLeads = await getLeads(); // fetch all leads from DB
+      setLeads(dbLeads);
+    } catch (e) {
+      console.warn("Failed to load leads from DB:", e);
+    }
   };
+
+  loadLeads();
+}, []);
+
+const handleSelectLead = (phone: string) => {
+  const normalizedPhone = phone.replace(/\D/g, "");
+  setSelectedPhone(normalizedPhone);
+  setActiveTab("dialer");
+};
+
 
   const getTitle = () => {
     switch (activeTab) {
@@ -110,12 +117,23 @@ export default function App() {
           />
         )}
 
-         {activeTab === "timeline" && (
-    <LeadTimelineScreen
-      route={{ params: { phone: selectedPhone, leadName: "Lead" } }}
-      onBack={() => setActiveTab("leads")}
-    />
-  )}
+        {activeTab === "timeline" && (
+  <LeadsTimelineScreen
+    onOpenTimeline={(phone, name) => {
+      setSelectedPhone(phone);
+      setSelectedLeadName(name);
+      setActiveTab("timelineDetail");
+    }}
+  />
+)}
+
+{activeTab === "timelineDetail" && (
+  <TimelineScreen
+    route={{ params: { phone: selectedPhone, leadName: selectedLeadName } }}
+    onBack={() => setActiveTab("timeline")}
+  />
+)}
+
         {activeTab === "history" && <HistoryScreen />}
         {activeTab === "reports" && <ReportsScreen />}
       </View>
@@ -285,6 +303,12 @@ const styles = StyleSheet.create({
     color: "#1abc9c",
     fontWeight: "700",
   },
+
+  modalButtonSelected: {
+  backgroundColor: "#d0f0e0", // light green highlight when selected
+  borderRadius: 8,
+}
+
 });
 
 
