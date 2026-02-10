@@ -535,7 +535,7 @@ const styles = StyleSheet.create({
 
 
 
-
+// /* ================= Updated DB Storage Storing Data in DB ================= *
 // import React, { useEffect, useState, useCallback } from "react";
 // import {
 //   View,
