@@ -45,10 +45,11 @@ type Props = {
   phone: string;
   leads: Lead[];
   onSelectLead: (phone: string) => void;
+  onOpenTimeline?: () => void;
 };
 
 /* ================= SCREEN ================= */
-export default function DialerScreen({ phone, leads, onSelectLead }: Props) {
+export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimeline }: Props) {
   const [note, setNote] = useState("");
   const [status, setStatus] = useState<LeadStatus>("New");
   const [leadName, setLeadName] = useState<string>("");
@@ -346,6 +347,14 @@ const goToPreviousLead = () => {
           <Text style={styles.prevNextText}>Previous Lead</Text>
         </TouchableOpacity>
 
+
+          <TouchableOpacity
+          style={styles.timelineButton}
+    onPress={() => onOpenTimeline && onOpenTimeline()} // ✅ navigate to Timeline
+  >
+    <Ionicons name="time" size={52} color="#038ba0" />
+  </TouchableOpacity>
+
         <TouchableOpacity style={styles.prevNextButton} onPress={goToNextLead}>
           <Text style={styles.prevNextText}>Next Lead</Text>
           <Ionicons name="chevron-forward" size={24} color="#fff" />
@@ -516,8 +525,9 @@ const styles = StyleSheet.create({
   tickContainer: { alignItems: "center", marginTop: 10 },
   tickCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#2ecc71", alignItems: "center", justifyContent: "center", elevation: 4 },
   fixedBottom: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", padding: 12 },
-  prevNextButton: { flex: 0.48, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#1abc9c", paddingVertical: 12, borderRadius: 10, gap: 6 },
+  prevNextButton: { flex: 0.48, height: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#1abc9c", paddingVertical: 12, borderRadius: 10, gap: 6 },
   prevNextText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  timelineButton: { flex: 0.28, height: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", },
   modalContainer: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
   modalContent: { backgroundColor: "#fff", padding: 20, borderRadius: 14, width: "80%", alignItems: "center" },
   modalTitle: { fontSize: 16, fontWeight: "700", marginBottom: 12 },

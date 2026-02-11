@@ -9,17 +9,15 @@ import HistoryScreen from "./src/screens/HistoryScreen";
 import ReportsScreen from "./src/screens/ReportsScreen";
 import { startCallListener } from "./src/utils/CallRecorder";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import LeadsTimelineScreen from "./src/screens/LeadTimelineScreen";
 import TimelineScreen from "./src/screens/TimelineScreen";
 
 // type Tab = "leads" | "dialer" | "history" | "reports" | "timeline";
-type Tab = "leads" | "dialer" | "history" | "reports" | "timeline" | "timelineDetail";
+type Tab = "leads" | "dialer" | "history" | "reports" | "timeline";
 
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("leads");
   const [selectedPhone, setSelectedPhone] = useState<string>("");
-  const [selectedLeadName, setSelectedLeadName] = useState<string>("");
   const [leads, setLeads] = useState<Lead[]>([]);
   const leadsTitle = "CRM Dashboard";
 
@@ -114,24 +112,12 @@ const handleSelectLead = (phone: string) => {
             phone={selectedPhone}
             leads={leads}
             onSelectLead={handleSelectLead}
+            onOpenTimeline={() => setActiveTab("timeline")}
           />
         )}
 
-        {activeTab === "timeline" && (
-  <LeadsTimelineScreen
-    onOpenTimeline={(phone, name) => {
-      setSelectedPhone(phone);
-      setSelectedLeadName(name);
-      setActiveTab("timelineDetail");
-    }}
-  />
-)}
-
-{activeTab === "timelineDetail" && (
-  <TimelineScreen
-    route={{ params: { phone: selectedPhone, leadName: selectedLeadName } }}
-    onBack={() => setActiveTab("timeline")}
-  />
+       {activeTab === "timeline" && (
+  <TimelineScreen selectedLeadPhone={selectedPhone} />
 )}
 
         {activeTab === "history" && <HistoryScreen />}

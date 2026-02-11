@@ -243,3 +243,66 @@ export const getLeadWithHistoryAndStatus = async (phone: string) => {
 
   return { lead: leadRow, history };
 };
+
+
+export const getAllLeadsWithHistoryAndStatus = async () => {
+  await openDatabase();
+  if (!db) throw new Error("DB not initialized");
+
+  // 1️⃣ Get all leads
+  const leadsResult = await db.executeSql(
+    "SELECT * FROM leads ORDER BY id DESC;"
+  );
+
+  const finalData: any[] = [];
+
+  for (let i = 0; i < leadsResult[0].rows.length; i++) {
+    const lead = leadsResult[0].rows.item(i);
+
+    // 2️⃣ Get history for this lead
+    const historyResult = await db.executeSql(
+      "SELECT * FROM history WHERE phone = ? ORDER BY date DESC;",
+      [lead.phone]
+    );
+
+    const history: TimelineLog[] = [];
+
+    for (let j = 0; j < historyResult[0].rows.length; j++) {
+      const row = historyResult[0].rows.item(j);
+
+      history.push({
+        id: row.id.toString(),
+        number: row.phone,
+        type: row.type as TimelineLog["type"],
+        duration: row.duration || 0,
+        time: row.date,
+        note: row.note || "",
+      });
+    }
+
+    // 3️⃣ Add lead status as timeline entry (if not NEW)
+    if (lead.status && lead.status !== "NEW") {
+      history.push({
+        id: `status_${lead.id}`,
+        number: lead.phone,
+        type: lead.status as TimelineLog["type"],
+        duration: 0,
+        time: new Date().toISOString(),
+        status: lead.status,
+      });
+    }
+
+    // 4️⃣ Sort timeline by date descending
+    history.sort(
+      (a, b) =>
+        new Date(b.time).getTime() - new Date(a.time).getTime()
+    );
+
+    finalData.push({
+      lead,
+      history,
+    });
+  }
+
+  return finalData;
+};
