@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,11 +6,11 @@ import {
   ScrollView,
   ActivityIndicator,
   TextInput,
-} from "react-native";
-import Ionicons from "react-native-vector-icons/Ionicons";
-import { SafeAreaView } from "react-native-safe-area-context";
+} from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getAllLeadsWithHistoryAndStatus } from "../db/database";
+import { getAllLeadsWithHistoryAndStatus } from '../db/database';
 
 type TimelineLog = {
   id: string | number;
@@ -28,22 +28,24 @@ type LeadTimeline = {
 
 type TimelineScreenProps = {
   selectedLeadPhone?: string; // optional
+  resetTimeline?: boolean; // optional
 };
 
-export default function TimelineScreen({ selectedLeadPhone }: TimelineScreenProps) {
+export default function TimelineScreen({
+  selectedLeadPhone,
+  resetTimeline,
+}: TimelineScreenProps) {
   const [leadsData, setLeadsData] = useState<LeadTimeline[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState('');
 
-useEffect(() => {
-  // Only set searchQuery if selectedLeadPhone is defined (opened from lead)
-  if (selectedLeadPhone) {
-    setSearchQuery(selectedLeadPhone);
-  } else {
-    setSearchQuery(""); // opened from bottom tab, show all leads
-  }
-}, [selectedLeadPhone]);
-
+  useEffect(() => {
+    if (selectedLeadPhone) {
+      setSearchQuery(selectedLeadPhone); // opened from lead
+    } else if (resetTimeline) {
+      setSearchQuery(''); // opened from bottom tab → clear filter
+    }
+  }, [selectedLeadPhone, resetTimeline]);
 
   /* ================= LOAD TIMELINE ================= */
   const loadTimeline = useCallback(async () => {
@@ -63,7 +65,7 @@ useEffect(() => {
 
           const sortedLogs = mappedLogs.sort(
             (a: any, b: any) =>
-              new Date(b.time).getTime() - new Date(a.time).getTime()
+              new Date(b.time).getTime() - new Date(a.time).getTime(),
           );
 
           return {
@@ -81,7 +83,7 @@ useEffect(() => {
 
       setLeadsData(formatted);
     } catch (e) {
-      console.error("Failed to load timeline:", e);
+      console.error('Failed to load timeline:', e);
     } finally {
       setLoading(false);
     }
@@ -99,43 +101,44 @@ useEffect(() => {
   //     lead.leadName.toLowerCase().includes(searchQuery.toLowerCase()) ||
   //     lead.phone.includes(searchQuery)
   // );
-  const filteredLeads = leadsData.filter((lead) =>
-  searchQuery.length === 0
-    ? true // no filter if searchQuery empty
-    : lead.leadName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      lead.phone.includes(searchQuery)
-);
-
+  const filteredLeads = leadsData.filter(lead =>
+    searchQuery.length === 0
+      ? true // no filter if searchQuery empty
+      : lead.leadName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        lead.phone.includes(searchQuery),
+  );
 
   /* ================= HELPERS ================= */
 
   const normalize = (type: any) =>
-    String(type || "").trim().toLowerCase();
+    String(type || '')
+      .trim()
+      .toLowerCase();
 
   const getIcon = (type: any) => {
     const t = normalize(type);
 
     switch (t) {
-      case "1":
-      case "incoming":
+      case '1':
+      case 'incoming':
         return <Ionicons name="call" size={24} color="#2ecc71" />;
-      case "2":
-      case "outgoing":
-      case "call":
-      case "dialed":
+      case '2':
+      case 'outgoing':
+      case 'call':
+      case 'dialed':
         return <Ionicons name="call-outline" size={24} color="#7f8c8d" />;
-      case "3":
-      case "missed":
+      case '3':
+      case 'missed':
         return <Ionicons name="call-outline" size={24} color="#e74c3c" />;
-      case "whatsapp":
+      case 'whatsapp':
         return <Ionicons name="logo-whatsapp" size={24} color="#25D366" />;
-      case "followup":
-      case "follow-up":
+      case 'followup':
+      case 'follow-up':
         return <Ionicons name="calendar" size={24} color="#3498db" />;
-      case "interested":
+      case 'interested':
         return <Ionicons name="checkmark-circle" size={24} color="#2ecc71" />;
-      case "not interested":
-      case "not_interested":
+      case 'not interested':
+      case 'not_interested':
         return <Ionicons name="close-circle" size={24} color="#e74c3c" />;
       default:
         return <Ionicons name="calendar-outline" size={24} color="#bdc3c7" />;
@@ -146,46 +149,46 @@ useEffect(() => {
     const t = normalize(type);
 
     switch (t) {
-      case "1":
-      case "incoming":
-      case "interested":
-      case "whatsapp":
-        return "#2ecc71";
-      case "3":
-      case "missed":
-      case "not interested":
-      case "not_interested":
-        return "#e74c3c";
-      case "followup":
-      case "follow-up":
-        return "#3498db";
+      case '1':
+      case 'incoming':
+      case 'interested':
+      case 'whatsapp':
+        return '#2ecc71';
+      case '3':
+      case 'missed':
+      case 'not interested':
+      case 'not_interested':
+        return '#e74c3c';
+      case 'followup':
+      case 'follow-up':
+        return '#3498db';
       default:
-        return "#7f8c8d";
+        return '#7f8c8d';
     }
   };
 
   const getBadgeText = (type: any) => {
     const t = normalize(type);
-    if (!t) return "Unknown";
+    if (!t) return 'Unknown';
 
     const mapping: Record<string, string> = {
-      "1": "Incoming",
-      incoming: "Incoming",
-      "2": "Call",
-      outgoing: "Call",
-      call: "Call",
-      dialed: "Call",
-      "3": "Missed",
-      missed: "Missed",
-      whatsapp: "WhatsApp",
-      followup: "Follow-up",
-      "follow-up": "Follow-up",
-      interested: "Interested",
-      "not interested": "Not Interested",
-      not_interested: "Not Interested",
+      '1': 'Incoming',
+      incoming: 'Incoming',
+      '2': 'Call',
+      outgoing: 'Call',
+      call: 'Call',
+      dialed: 'Call',
+      '3': 'Missed',
+      missed: 'Missed',
+      whatsapp: 'WhatsApp',
+      followup: 'Follow-up',
+      'follow-up': 'Follow-up',
+      interested: 'Interested',
+      'not interested': 'Not Interested',
+      not_interested: 'Not Interested',
     };
 
-    return mapping[t] || (t.charAt(0).toUpperCase() + t.slice(1));
+    return mapping[t] || t.charAt(0).toUpperCase() + t.slice(1);
   };
 
   const formatDuration = (seconds: number) => {
@@ -196,7 +199,7 @@ useEffect(() => {
 
   const formatTime = (time: string) => {
     const d = new Date(time);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   const formatDate = (time: string) => {
@@ -210,28 +213,33 @@ useEffect(() => {
     <SafeAreaView style={styles.container}>
       {/* SEARCH HEADER */}
       <View style={styles.searchHeader}>
-       <View style={styles.searchContainer}>
-  <TextInput
-    placeholder="Search lead by name or phone..."
-    placeholderTextColor="#888"
-    style={styles.searchInput}
-    value={searchQuery}
-    onChangeText={setSearchQuery}
-  />
+        <View style={styles.searchContainer}>
+          <TextInput
+            placeholder="Search lead by name or phone..."
+            placeholderTextColor="#888"
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
 
-  {/* Search or Clear icon */}
-  {searchQuery.length > 0 ? (
-    <Ionicons
-      name="close-circle"
-      size={20}
-      color="#888"
-      style={styles.searchIcon}
-      onPress={() => setSearchQuery("")} // clears the input
-    />
-  ) : (
-    <Ionicons name="search" size={22} color="#1abc9c" style={styles.searchIcon} />
-  )}
-</View>
+          {/* Search or Clear icon */}
+          {searchQuery.length > 0 ? (
+            <Ionicons
+              name="close-circle"
+              size={20}
+              color="#888"
+              style={styles.searchIcon}
+              onPress={() => setSearchQuery('')} // clears the input
+            />
+          ) : (
+            <Ionicons
+              name="search"
+              size={22}
+              color="#1abc9c"
+              style={styles.searchIcon}
+            />
+          )}
+        </View>
       </View>
 
       {loading ? (
@@ -246,17 +254,16 @@ useEffect(() => {
             ) : (
               filteredLeads.map((lead, leadIndex) => (
                 <View key={leadIndex} style={styles.leadSection}>
-                 <View style={styles.leadHeader}>
-  <View style={styles.profileCircle}>
-    <Ionicons name="person" size={22} color="#1abc9c" />
-  </View>
+                  <View style={styles.leadHeader}>
+                    <View style={styles.profileCircle}>
+                      <Ionicons name="person" size={22} color="#1abc9c" />
+                    </View>
 
-  <View style={styles.leadTextContainer}>
-    <Text style={styles.leadName}>{lead.leadName}</Text>
-    <Text style={styles.leadPhone}>{lead.phone}</Text>
-  </View>
-</View>
-
+                    <View style={styles.leadTextContainer}>
+                      <Text style={styles.leadName}>{lead.leadName}</Text>
+                      <Text style={styles.leadPhone}>{lead.phone}</Text>
+                    </View>
+                  </View>
 
                   {lead.logs.map((log, index) => (
                     <View key={log.id} style={styles.timelineRow}>
@@ -306,29 +313,29 @@ useEffect(() => {
 /* ================= STYLES ================= */
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#d1e7e7" },
+  container: { flex: 1, backgroundColor: '#d1e7e7' },
 
   searchHeader: {
     paddingVertical: 12,
     paddingHorizontal: 15,
   },
 
-searchContainer: {
-  flexDirection: "row",
-  alignItems: "center",
-  backgroundColor: "#fff",
-  paddingHorizontal: 10,
-  borderRadius: 8,
-  borderWidth: 1,
-  borderColor: "#ccc",
-},
-searchInput: {
-  flex: 1,
-  height: 40,
-  color: "#000",
-},
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    color: '#000',
+  },
 
- searchIcon: {
+  searchIcon: {
     marginLeft: 8,
   },
 
@@ -336,29 +343,29 @@ searchInput: {
   loader: { marginTop: 50 },
 
   timelineContainer: { padding: 20, paddingTop: 20 },
-  timelineRow: { flexDirection: "row", marginBottom: 30, minHeight: 80 },
-  leftColumn: { width: 60, alignItems: "center" },
+  timelineRow: { flexDirection: 'row', marginBottom: 30, minHeight: 80 },
+  leftColumn: { width: 60, alignItems: 'center' },
   verticalLine: {
-    position: "absolute",
+    position: 'absolute',
     top: 50,
     bottom: -30,
     width: 3,
-    backgroundColor: "#3b5353",
+    backgroundColor: '#3b5353',
     zIndex: 1,
   },
   iconCircle: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: "#fff",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
     elevation: 4,
     zIndex: 2,
   },
   card: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: '#fff',
     marginLeft: 10,
     borderRadius: 15,
     paddingHorizontal: 18,
@@ -369,73 +376,70 @@ searchInput: {
     marginTop: 6,
     paddingHorizontal: 8,
     borderRadius: 6,
-    alignSelf: "flex-start",
+    alignSelf: 'flex-start',
   },
-  statusBadgeText: { fontSize: 11, fontWeight: "600", color: "#fff" },
-  timeText: { fontSize: 12, color: "#7f8c8d", marginTop: 4 },
-  noteText: { marginTop: 6, color: "#555", fontSize: 14 },
+  statusBadgeText: { fontSize: 11, fontWeight: '600', color: '#fff' },
+  timeText: { fontSize: 12, color: '#7f8c8d', marginTop: 4 },
+  noteText: { marginTop: 6, color: '#555', fontSize: 14 },
   emptyText: {
-    textAlign: "center",
+    textAlign: 'center',
     marginTop: 50,
-    color: "#3b5353",
+    color: '#3b5353',
     fontSize: 16,
   },
 
   leadSection: { marginBottom: 40 },
 
- leadTitle: {
-  fontSize: 20,
-  fontWeight: "700",
-  marginBottom: 18,
-  color: "#1e293b",        // modern dark slate color
-  textAlign: "center",
-  letterSpacing: 0.5,
-  paddingBottom: 6,
-  borderBottomWidth: 2,
-  borderBottomColor: "#1abc9c",  // theme accent line
-  alignSelf: "center",
-  minWidth: "60%",
-},
+  leadTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 18,
+    color: '#1e293b', // modern dark slate color
+    textAlign: 'center',
+    letterSpacing: 0.5,
+    paddingBottom: 6,
+    borderBottomWidth: 2,
+    borderBottomColor: '#1abc9c', // theme accent line
+    alignSelf: 'center',
+    minWidth: '60%',
+  },
 
-leadHeader: {
-  flexDirection: "row",
-  alignItems: "center",
-  backgroundColor: "#ffffff",
-  padding: 12,
-  borderRadius: 14,
-  marginBottom: 20,
-  elevation: 2,
-},
+  leadHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    padding: 12,
+    borderRadius: 14,
+    marginBottom: 20,
+    elevation: 2,
+  },
 
-profileCircle: {
-  width: 45,
-  height: 45,
-  borderRadius: 22.5,
-  backgroundColor: "#e8f8f5",
-  justifyContent: "center",
-  alignItems: "center",
-  marginRight: 12,
-},
+  profileCircle: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    backgroundColor: '#e8f8f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
 
-leadTextContainer: {
-  flex: 1,
-},
+  leadTextContainer: {
+    flex: 1,
+  },
 
-leadName: {
-  fontSize: 16,
-  fontWeight: "700",
-  color: "#1e293b",
-},
+  leadName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
 
-leadPhone: {
-  fontSize: 13,
-  color: "#64748b",
-  marginTop: 2,
-},
+  leadPhone: {
+    fontSize: 13,
+    color: '#64748b',
+    marginTop: 2,
+  },
 });
-
-
-
 
 // import React, { useEffect, useState, useCallback } from "react";
 // import {
@@ -554,17 +558,17 @@ leadPhone: {
 //     case "1":
 //     case "incoming":
 //     case "interested":
-//     case "whatsapp": 
+//     case "whatsapp":
 //       return "#2ecc71";
 //     case "3":
 //     case "missed":
 //     case "not interested":
-//     case "not_interested": 
+//     case "not_interested":
 //       return "#e74c3c";
 //     case "followup":
-//     case "follow-up": 
+//     case "follow-up":
 //       return "#3498db";
-//     default: 
+//     default:
 //       return "#7f8c8d";
 //   }
 // };
@@ -572,7 +576,7 @@ leadPhone: {
 // const getBadgeText = (type: any) => {
 //   const t = normalize(type);
 //   if (!t) return "Unknown";
-  
+
 //   // Custom mapping for clean display text
 //   const mapping: Record<string, string> = {
 //     "1": "Incoming",
@@ -593,7 +597,6 @@ leadPhone: {
 
 //   return mapping[t] || (t.charAt(0).toUpperCase() + t.slice(1));
 // };
-
 
 //   const formatDuration = (seconds: number) => {
 //     const mins = Math.floor(seconds / 60);

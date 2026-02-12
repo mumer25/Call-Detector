@@ -1,43 +1,60 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, BackHandler } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { initDB, getLeads } from "./src/db/database";
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  StatusBar,
+  BackHandler,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { initDB, getLeads } from './src/db/database';
 
-import LeadsScreen from "./src/screens/LeadsScreen";
-import DialerScreen, { Lead } from "./src/screens/DialerScreen";
-import HistoryScreen from "./src/screens/HistoryScreen";
-import ReportsScreen from "./src/screens/ReportsScreen";
-import TimelineScreen from "./src/screens/TimelineScreen";
-import SplashScreen from "./src/screens/SplashScreen";
-import LoginScreen from "./src/screens/LoginScreen"; // new
+import LeadsScreen from './src/screens/LeadsScreen';
+import DialerScreen, { Lead } from './src/screens/DialerScreen';
+import HistoryScreen from './src/screens/HistoryScreen';
+import ReportsScreen from './src/screens/ReportsScreen';
+import TimelineScreen from './src/screens/TimelineScreen';
+import SplashScreen from './src/screens/SplashScreen';
+import LoginScreen from './src/screens/LoginScreen'; // new
 
-import { startCallListener } from "./src/utils/CallRecorder";
-import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+import { startCallListener } from './src/utils/CallRecorder';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
-type Tab = "leads" | "dialer" | "history" | "reports" | "timeline";
+type Tab = 'leads' | 'dialer' | 'history' | 'reports' | 'timeline';
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true); // splash
   const [loggedIn, setLoggedIn] = useState(false); // login status
-  const [activeTab, setActiveTab] = useState<Tab>("leads");
-  const [selectedPhone, setSelectedPhone] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<Tab>('leads');
+  const [selectedPhone, setSelectedPhone] = useState<string>('');
   const [leads, setLeads] = useState<Lead[]>([]);
-  const leadsTitle = "Home";
+  const [resetTimeline, setResetTimeline] = useState(false);
+  const leadsTitle = 'Home';
 
   const handleSplashFinish = useCallback(() => {
     setIsLoading(false);
   }, []);
 
+  useEffect(() => {
+    if (activeTab === 'timeline') {
+      setResetTimeline(prev => !prev); // toggle to trigger effect
+    }
+  }, [activeTab]);
+
   // Handle Android back button
   useEffect(() => {
     const backAction = () => {
-      if (activeTab !== "leads") {
-        setActiveTab("leads");
+      if (activeTab !== 'leads') {
+        setActiveTab('leads');
         return true;
       }
       return false;
     };
-    const backHandler = BackHandler.addEventListener("hardwareBackPress", backAction);
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction,
+    );
     return () => backHandler.remove();
   }, [activeTab]);
 
@@ -51,7 +68,7 @@ export default function App() {
         const dbLeads = await getLeads(); // fetch all leads from DB
         setLeads(dbLeads);
       } catch (e) {
-        console.warn("Failed to load leads from DB:", e);
+        console.warn('Failed to load leads from DB:', e);
       }
     };
 
@@ -59,21 +76,21 @@ export default function App() {
   }, []);
 
   const handleSelectLead = (phone: string) => {
-    const normalizedPhone = phone.replace(/\D/g, "");
+    const normalizedPhone = phone.replace(/\D/g, '');
     setSelectedPhone(normalizedPhone);
-    setActiveTab("dialer");
+    setActiveTab('dialer');
   };
 
   const getTitle = () => {
     switch (activeTab) {
-      case "dialer":
-        return "Dialer";
-      case "history":
-        return "Call History";
-      case "reports":
-        return "Reports";
-      case "timeline":
-        return "Lead Timeline";
+      case 'dialer':
+        return 'Dialer';
+      case 'history':
+        return 'Call History';
+      case 'reports':
+        return 'Reports';
+      case 'timeline':
+        return 'Lead Timeline';
       default:
         return leadsTitle;
     }
@@ -94,10 +111,10 @@ export default function App() {
 
       {/* HEADER */}
       <View style={styles.header}>
-        {activeTab !== "leads" ? (
+        {activeTab !== 'leads' ? (
           <TouchableOpacity
             style={styles.backBtn}
-            onPress={() => setActiveTab("leads")}
+            onPress={() => setActiveTab('leads')}
           >
             <MaterialIcons name="arrow-back-ios" size={20} color="#1abc9c" />
             <Text style={styles.backText}>Back</Text>
@@ -112,33 +129,44 @@ export default function App() {
 
       {/* MAIN CONTENT */}
       <View style={styles.content}>
-        {activeTab === "leads" && (
+        {activeTab === 'leads' && (
           <LeadsScreen
             onSelectLead={handleSelectLead}
-            onOpenReport={() => setActiveTab("reports")}
-            onOpenHistory={() => setActiveTab("history")}
+            onOpenReport={() => setActiveTab('reports')}
+            onOpenHistory={() => setActiveTab('history')}
           />
         )}
 
-        {activeTab === "dialer" && (
+        {activeTab === 'dialer' && (
           <DialerScreen
             phone={selectedPhone}
             leads={leads}
             onSelectLead={handleSelectLead}
-            onOpenTimeline={() => setActiveTab("timeline")}
+            onOpenTimeline={() => setActiveTab('timeline')}
           />
         )}
 
-        {activeTab === "timeline" && (
-          <TimelineScreen selectedLeadPhone={selectedPhone} />
+        {activeTab === 'timeline' && (
+          <TimelineScreen
+            selectedLeadPhone={selectedPhone}
+            resetTimeline={resetTimeline}
+          />
         )}
 
-        {activeTab === "history" && <HistoryScreen />}
-        {activeTab === "reports" && <ReportsScreen />}
+        {activeTab === 'history' && <HistoryScreen />}
+        {activeTab === 'reports' && <ReportsScreen />}
       </View>
 
       {/* BOTTOM TABS */}
-      <BottomTabs activeTab={activeTab} setActiveTab={setActiveTab} />
+      {/* <BottomTabs activeTab={activeTab} setActiveTab={setActiveTab} /> */}
+      <BottomTabs
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onTimelineTabPress={() => {
+          setSelectedPhone(''); // clear selected phone
+          setResetTimeline(prev => !prev); // toggle to reset TimelineScreen
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -147,62 +175,87 @@ export default function App() {
 type BottomTabProps = {
   activeTab: Tab;
   setActiveTab: (tab: Tab) => void;
+  onTimelineTabPress: () => void;
 };
 
-const BottomTabs: React.FC<BottomTabProps> = ({ activeTab, setActiveTab }) => (
+const BottomTabs: React.FC<BottomTabProps> = ({
+  activeTab,
+  setActiveTab,
+  onTimelineTabPress,
+}) => (
   <View style={styles.bottomTabs}>
     <TouchableOpacity
-      style={[styles.tabButton, activeTab === "leads" && styles.tabActive]}
-      onPress={() => setActiveTab("leads")}
+      style={[styles.tabButton, activeTab === 'leads' && styles.tabActive]}
+      onPress={() => setActiveTab('leads')}
     >
       <MaterialIcons
         name="home"
         size={24}
-        color={activeTab === "leads" ? "#1abc9c" : "#7f8c8d"}
+        color={activeTab === 'leads' ? '#1abc9c' : '#7f8c8d'}
       />
-      <Text style={[styles.tabText, activeTab === "leads" && styles.tabTextActive]}>
+      <Text
+        style={[styles.tabText, activeTab === 'leads' && styles.tabTextActive]}
+      >
         Leads
       </Text>
     </TouchableOpacity>
 
     <TouchableOpacity
-      style={[styles.tabButton, activeTab === "history" && styles.tabActive]}
-      onPress={() => setActiveTab("history")}
+      style={[styles.tabButton, activeTab === 'history' && styles.tabActive]}
+      onPress={() => setActiveTab('history')}
     >
       <MaterialIcons
         name="history"
         size={24}
-        color={activeTab === "history" ? "#1abc9c" : "#7f8c8d"}
+        color={activeTab === 'history' ? '#1abc9c' : '#7f8c8d'}
       />
-      <Text style={[styles.tabText, activeTab === "history" && styles.tabTextActive]}>
+      <Text
+        style={[
+          styles.tabText,
+          activeTab === 'history' && styles.tabTextActive,
+        ]}
+      >
         History
       </Text>
     </TouchableOpacity>
 
     <TouchableOpacity
-      style={[styles.tabButton, activeTab === "reports" && styles.tabActive]}
-      onPress={() => setActiveTab("reports")}
+      style={[styles.tabButton, activeTab === 'reports' && styles.tabActive]}
+      onPress={() => setActiveTab('reports')}
     >
       <MaterialIcons
         name="bar-chart"
         size={24}
-        color={activeTab === "reports" ? "#1abc9c" : "#7f8c8d"}
+        color={activeTab === 'reports' ? '#1abc9c' : '#7f8c8d'}
       />
-      <Text style={[styles.tabText, activeTab === "reports" && styles.tabTextActive]}>
+      <Text
+        style={[
+          styles.tabText,
+          activeTab === 'reports' && styles.tabTextActive,
+        ]}
+      >
         Reports
       </Text>
     </TouchableOpacity>
 
     <TouchableOpacity
-      style={[styles.tabButton, activeTab === "timeline" && styles.tabActive]}
-      onPress={() => setActiveTab("timeline")}
+      style={[styles.tabButton, activeTab === 'timeline' && styles.tabActive]}
+      onPress={() => {
+        setActiveTab('timeline');
+        onTimelineTabPress(); // call the handler to reset Timeline
+      }}
     >
       <MaterialIcons
         name="timeline"
         size={24}
-        color={activeTab === "timeline" ? "#1abc9c" : "#7f8c8d"}
+        color={activeTab === 'timeline' ? '#1abc9c' : '#7f8c8d'}
       />
-      <Text style={[styles.tabText, activeTab === "timeline" && styles.tabTextActive]}>
+      <Text
+        style={[
+          styles.tabText,
+          activeTab === 'timeline' && styles.tabTextActive,
+        ]}
+      >
         Timeline
       </Text>
     </TouchableOpacity>
@@ -211,56 +264,65 @@ const BottomTabs: React.FC<BottomTabProps> = ({ activeTab, setActiveTab }) => (
 
 // -------------------- STYLES --------------------
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f0f4f7" },
+  container: { flex: 1, backgroundColor: '#f0f4f7' },
   header: {
     height: 64,
-    backgroundColor: "#ffffff",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-    shadowColor: "#000",
+    borderBottomColor: '#e0e0e0',
+    shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
     elevation: 2,
   },
   backBtn: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: "#e0f7f4",
+    backgroundColor: '#e0f7f4',
     gap: 4,
   },
-  backText: { fontSize: 16, fontWeight: "600", color: "#1abc9c" },
+  backText: { fontSize: 16, fontWeight: '600', color: '#1abc9c' },
   backPlaceholder: { width: 68 },
-  title: { flex: 1, textAlign: "center", fontSize: 20, fontWeight: "700", color: "#2c3e50" },
+  title: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#2c3e50',
+  },
   content: { flex: 1 },
   bottomTabs: {
     height: 60,
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-    backgroundColor: "#fff",
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-    shadowColor: "#000",
+    borderTopColor: '#e0e0e0',
+    shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowOffset: { width: 0, height: -2 },
     shadowRadius: 4,
     elevation: 5,
   },
-  tabButton: { flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 8 },
-  tabActive: { backgroundColor: "#e0f7f4", borderRadius: 8 },
-  tabText: { fontSize: 12, color: "#7f8c8d", marginTop: 2 },
-  tabTextActive: { color: "#1abc9c", fontWeight: "700" },
+  tabButton: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  tabActive: { backgroundColor: '#e0f7f4', borderRadius: 8 },
+  tabText: { fontSize: 12, color: '#7f8c8d', marginTop: 2 },
+  tabTextActive: { color: '#1abc9c', fontWeight: '700' },
 });
-
-
 
 // import React, { useEffect, useState, useCallback  } from "react";
 // import { View, Text, TouchableOpacity, StyleSheet, StatusBar, BackHandler } from "react-native";
@@ -279,14 +341,13 @@ const styles = StyleSheet.create({
 // // type Tab = "leads" | "dialer" | "history" | "reports" | "timeline";
 // type Tab = "leads" | "dialer" | "history" | "reports" | "timeline";
 
-
 // export default function App() {
 //   const [isLoading, setIsLoading] = useState(true);
 //   const [activeTab, setActiveTab] = useState<Tab>("leads");
 //   const [selectedPhone, setSelectedPhone] = useState<string>("");
 //   const [leads, setLeads] = useState<Lead[]>([]);
 //   const leadsTitle = "Home";
-  
+
 // const handleSplashFinish = useCallback(() => {
 //     setIsLoading(false);
 //   }, []);
@@ -331,7 +392,6 @@ const styles = StyleSheet.create({
 //   setSelectedPhone(normalizedPhone);
 //   setActiveTab("dialer");
 // };
-
 
 //   const getTitle = () => {
 //     switch (activeTab) {
@@ -579,9 +639,6 @@ const styles = StyleSheet.create({
 // }
 
 // });
-
-
-
 
 // import React, { useEffect, useState } from "react";
 // import { View, Text, TouchableOpacity, StyleSheet, StatusBar, BackHandler } from "react-native";
@@ -848,9 +905,6 @@ const styles = StyleSheet.create({
 //   },
 // });
 
-
-
-
 // import React, { useEffect, useState } from "react";
 // import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from "react-native";
 // import { BackHandler } from "react-native";
@@ -889,7 +943,6 @@ const styles = StyleSheet.create({
 //   return () => backHandler.remove(); // Clean up
 // }, [activeTab]);
 
-
 //   useEffect(() => {
 //     startCallListener(); // Start listening to native call events
 
@@ -911,13 +964,13 @@ const styles = StyleSheet.create({
 
 // const getTitle = () => {
 //   switch (activeTab) {
-//     case "dialer": 
+//     case "dialer":
 //       return "Dialer";
-//     case "history": 
+//     case "history":
 //       return "Call History";
-//       case "reports": 
+//       case "reports":
 //       return "Reports";
-//     default: 
+//     default:
 //       return leadsTitle;
 //   }
 // };
@@ -1000,7 +1053,6 @@ const styles = StyleSheet.create({
 //   gap: 4,                 // space between icon and text
 // },
 
-
 //   backText: {
 //     fontSize: 16,
 //     fontWeight: "600",
@@ -1021,9 +1073,6 @@ const styles = StyleSheet.create({
 //     flex: 1,
 //   },
 // });
-
-
-
 
 // import React, { useEffect, useState } from "react";
 // import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from "react-native";
@@ -1142,9 +1191,6 @@ const styles = StyleSheet.create({
 //   },
 // });
 
-
-
-
 // import React, { useEffect, useState } from "react";
 // import {
 //   NativeModules,
@@ -1248,7 +1294,6 @@ const styles = StyleSheet.create({
 //   setDialNumber(prev => prev.slice(0, -1));
 // };
 
-
 //   const keypad = [
 //     ["1", "2", "3"],
 //     ["4", "5", "6"],
@@ -1279,7 +1324,6 @@ const styles = StyleSheet.create({
 //           <Text style={styles.dialerNumber} numberOfLines={1} ellipsizeMode="tail">
 //   {dialNumber || "Enter your Number"}
 // </Text>
-
 
 //           <View style={styles.keypad}>
 //             {keypad.map((row, rowIndex) => (
@@ -1359,9 +1403,6 @@ const styles = StyleSheet.create({
 //   emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", marginTop: 50 },
 //   emptyText: { fontSize: 18, color: "#718093" },
 // });
-
-
-
 
 // Dialer and Call History Added Version
 
@@ -1539,13 +1580,6 @@ const styles = StyleSheet.create({
 //     color: "#718093",
 //   },
 // });
-
-
-
-
-
-
-
 
 // import React, { useEffect, useState } from "react";
 // import {
