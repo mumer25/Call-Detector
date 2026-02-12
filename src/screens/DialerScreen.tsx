@@ -526,7 +526,7 @@ const styles = StyleSheet.create({
   tickCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#2ecc71", alignItems: "center", justifyContent: "center", elevation: 4 },
   fixedBottom: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", padding: 12 },
   prevNextButton: { flex: 0.48, height: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#1abc9c", paddingVertical: 12, borderRadius: 10, gap: 6 },
-  prevNextText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  prevNextText: { color: "#fff", fontWeight: "700", fontSize: 12 },
   timelineButton: { flex: 0.28, height: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", },
   modalContainer: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
   modalContent: { backgroundColor: "#fff", padding: 20, borderRadius: 14, width: "80%", alignItems: "center" },
