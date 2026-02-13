@@ -144,17 +144,29 @@ export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimelin
     }
   };
 
-  const makeCall = async () => {
-    try {
-      const dialUrl = `tel:${phone}`;
-      await Linking.openURL(dialUrl);
 
-      await insertHistory(null, phone, new Date().toISOString(), 0);
-      loadLeadLogs();
-    } catch {
-      Alert.alert("Dialer Error", "Unable to open phone dialer on this device.");
-    }
-  };
+  const makeCall = async () => {
+  try {
+    const dialUrl = `tel:${phone}`;
+    await Linking.openURL(dialUrl);
+    // Do NOT insert call log here
+  } catch {
+    Alert.alert("Dialer Error", "Unable to open phone dialer on this device.");
+  }
+};
+
+
+  // const makeCall = async () => {
+  //   try {
+  //     const dialUrl = `tel:${phone}`;
+  //     await Linking.openURL(dialUrl);
+
+  //     await insertHistory(null, phone, new Date().toISOString(), 0);
+  //     loadLeadLogs();
+  //   } catch {
+  //     Alert.alert("Dialer Error", "Unable to open phone dialer on this device.");
+  //   }
+  // };
 
   // const openWhatsAppFollowUp = async () => {
   //   const message = note
