@@ -3,92 +3,72 @@ package com.calldetect
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.Handler
-import android.os.Looper
-import android.telephony.PhoneStateListener
-import android.telephony.TelephonyManager
+import android.provider.CallLog
 import androidx.core.app.ActivityCompat
 import com.facebook.react.bridge.*
-import com.facebook.react.modules.core.DeviceEventManagerModule
+import android.database.Cursor
 
-class CallDetectorModule(reactContext: ReactApplicationContext) :
+class CallDetectorModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
-
-    private var telephonyManager: TelephonyManager? = null
-    private var listener: PhoneStateListener? = null
 
     override fun getName(): String {
         return "CallDetector"
     }
 
-    override fun initialize() {
-    super.initialize()
-    ReactApplicationContextHolder.reactContext = reactApplicationContext
-}
-
-
     @ReactMethod
-    fun startListening() {
-        val context = reactApplicationContext
+    fun getCallsSince(lastDate: Double, promise: Promise) {
 
-        // Check permission
         if (ActivityCompat.checkSelfPermission(
-                context,
-                Manifest.permission.READ_PHONE_STATE
+                reactContext,
+                Manifest.permission.READ_CALL_LOG
             ) != PackageManager.PERMISSION_GRANTED
-        ) return
+        ) {
+            promise.reject("NO_PERMISSION", "READ_CALL_LOG not granted")
+            return
+        }
 
-        Handler(Looper.getMainLooper()).post {
-            telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            listener = object : PhoneStateListener() {
-                private var callStartTime: Long = 0
+        val callsArray = Arguments.createArray()
 
-                override fun onCallStateChanged(state: Int, phoneNumber: String?) {
-                    val event = Arguments.createMap()
+        val selection = "${CallLog.Calls.DATE} > ?"
+        val selectionArgs = arrayOf(lastDate.toLong().toString())
 
-                    when (state) {
-                        TelephonyManager.CALL_STATE_RINGING -> {
-                            event.putString("state", "Incoming")
-                            event.putString("number", phoneNumber)
-                            sendEvent("CallEvent", event)
-                        }
-                        TelephonyManager.CALL_STATE_OFFHOOK -> {
-                            callStartTime = System.currentTimeMillis()
-                            event.putString("state", "Connected")
-                            event.putString("number", phoneNumber)
-                            sendEvent("CallEvent", event)
-                        }
-                        TelephonyManager.CALL_STATE_IDLE -> {
-                            val duration = if (callStartTime > 0)
-                                ((System.currentTimeMillis() - callStartTime) / 1000).toInt()
-                            else 0
-                            event.putString("state", "Disconnected")
-                            event.putString("number", phoneNumber)
-                            event.putInt("duration", duration)
-                            sendEvent("CallEvent", event)
-                        }
-                    }
+        val cursor: Cursor? = reactContext.contentResolver.query(
+            CallLog.Calls.CONTENT_URI,
+            null,
+            selection,
+            selectionArgs,
+            CallLog.Calls.DATE + " ASC"
+        )
+
+        cursor?.use {
+            while (it.moveToNext()) {
+
+                val number =
+                    it.getString(it.getColumnIndexOrThrow(CallLog.Calls.NUMBER))
+                val duration =
+                    it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.DURATION))
+                val typeInt =
+                    it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))
+                val date =
+                    it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE))
+
+                val type = when (typeInt) {
+                    CallLog.Calls.INCOMING_TYPE -> "incoming"
+                    CallLog.Calls.OUTGOING_TYPE -> "outgoing"
+                    CallLog.Calls.MISSED_TYPE -> "missed"
+                    else -> "unknown"
                 }
-            }
-            telephonyManager?.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
-        }
-    }
 
-    @ReactMethod
-    fun stopListening() {
-        Handler(Looper.getMainLooper()).post {
-            telephonyManager?.listen(listener, PhoneStateListener.LISTEN_NONE)
-        }
-    }
+                val map = Arguments.createMap()
+                map.putString("number", number)
+                map.putInt("duration", duration)
+                map.putString("type", type)
+                map.putDouble("date", date.toDouble())
 
-    private fun sendEvent(eventName: String, params: WritableMap) {
-        val context = reactApplicationContext
-        if (context.hasActiveCatalystInstance()) {
-            Handler(Looper.getMainLooper()).post {
-                context
-                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                    .emit(eventName, params)
+                callsArray.pushMap(map)
             }
         }
+
+        promise.resolve(callsArray)
     }
 }

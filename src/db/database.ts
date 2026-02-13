@@ -1,6 +1,4 @@
 import SQLite from "react-native-sqlite-storage";
-import { CallLog } from "../utils/CallRecorder";
-
 
 SQLite.DEBUG(true);
 SQLite.enablePromise(true);
@@ -31,6 +29,7 @@ export const initDB = async () => {
       name TEXT NOT NULL,
       phone TEXT NOT NULL UNIQUE,
       status TEXT,
+      status_time TEXT,
       assignee TEXT,
       source TEXT
     );
@@ -55,6 +54,18 @@ await database.executeSql(`
   console.log("Tables created!");
 };
 
+
+
+export interface CallLog {
+  id: number;
+  number: string;
+  time: string;   // ISO string
+  duration: number;
+  type: "incoming" | "outgoing" | "missed" | string;
+}
+
+
+
 /* ================= LEADS ================= */
 export const insertLead = async (
   name: string,
@@ -64,12 +75,14 @@ export const insertLead = async (
   source: string = "web"
 ): Promise<number> => {
   const database = await openDatabase();
+  const now = new Date().toISOString();
   const result = await database.executeSql(
-    "INSERT OR IGNORE INTO leads (name, phone, status, assignee, source) VALUES (?, ?, ?, ?, ?);",
-    [name, phone, status, assignee, source]
+    "INSERT OR IGNORE INTO leads (name, phone, status, status_time, assignee, source) VALUES (?, ?, ?, ?, ?, ?);",
+    [name, phone, status, now, assignee, source]
   );
   return result[0].insertId;
 };
+
 
 export const getLeads = async (): Promise<any[]> => {
   const database = await openDatabase();
@@ -98,8 +111,14 @@ export const searchLeads = async (query: string): Promise<any[]> => {
 
 export const updateLeadStatusDB = async (phone: string, status: string) => {
   const database = await openDatabase();
-  await database.executeSql("UPDATE leads SET status = ? WHERE phone = ?;", [status, phone]);
+  const now = new Date().toISOString();
+  await database.executeSql(
+    "UPDATE leads SET status = ?, status_time = ? WHERE phone = ?;",
+    [status, now, phone]
+  );
 };
+
+
 
 /* ================= CALL HISTORY ================= */
 export const insertHistory = async (
@@ -112,46 +131,41 @@ export const insertHistory = async (
 ) => {
   const database = await openDatabase();
 
-  let callDate: Date;
-  if (!date) {
-    callDate = new Date();
-  } else {
-    const parsedDate = new Date(date);
-    // Check if valid
-    if (isNaN(parsedDate.getTime())) {
-      callDate = new Date(); // fallback
-    } else {
-      callDate = parsedDate;
-    }
-  }
-
-  const isoDate = callDate.toISOString();
+  const callDate = date ? new Date(date) : new Date();
+  const isoDate = isNaN(callDate.getTime())
+    ? new Date().toISOString()
+    : callDate.toISOString();
 
   await database.executeSql(
-    "INSERT INTO history (lead_id, phone, date, duration, type, note) VALUES (?, ?, ?, ?, ?, ?);",
+    "INSERT OR IGNORE INTO history (lead_id, phone, date, duration, type, note) VALUES (?, ?, ?, ?, ?, ?);",
     [lead_id, phone, isoDate, duration, type, note]
   );
 };
 
 export const getHistory = async (): Promise<CallLog[]> => {
   const database = await openDatabase();
-  const results = await database.executeSql("SELECT * FROM history ORDER BY date DESC;");
+  const results = await database.executeSql(
+    "SELECT * FROM history ORDER BY date DESC;"
+  );
+
   const rows = results[0].rows;
   const history: CallLog[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const item = rows.item(i);
+
     history.push({
       id: item.id,
       number: item.phone || "Unknown",
-      duration: item.duration,
-      type: item.type as "incoming" | "outgoing" | "missed",
-      time: new Date(item.date).toLocaleString(),
+      duration: item.duration || 0,
+      type: item.type,
+      time: item.date,   // 🔥 return ISO string directly
     });
   }
 
   return history;
 };
+
 
 
 export const getHistoryByLead = async (lead_id: number): Promise<any[]> => {
@@ -233,7 +247,7 @@ export const getLeadWithHistoryAndStatus = async (phone: string) => {
       number: leadRow.phone,
       type: leadRow.status as TimelineLog["type"],
       duration: 0,
-      time: new Date().toISOString(),
+      time: leadRow.status_time || new Date().toISOString(),
       status: leadRow.status,
     });
   }
@@ -287,7 +301,7 @@ export const getAllLeadsWithHistoryAndStatus = async () => {
         number: lead.phone,
         type: lead.status as TimelineLog["type"],
         duration: 0,
-        time: new Date().toISOString(),
+        time: lead.status_time || new Date().toISOString(),
         status: lead.status,
       });
     }

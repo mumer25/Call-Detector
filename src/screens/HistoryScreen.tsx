@@ -1,8 +1,13 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { View, Text, FlatList, StyleSheet, RefreshControl } from "react-native";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  RefreshControl,
+} from "react-native";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import { CallLog } from "../utils/CallRecorder";
-import { getHistory } from "../db/database";
+import { CallLog, getHistory } from "../db/database";
 
 export default function HistoryScreen() {
   const [logs, setLogs] = useState<CallLog[]>([]);
@@ -14,24 +19,24 @@ export default function HistoryScreen() {
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
   };
 
-  const loadLogs = async () => {
-    try {
-      const dbLogs = await getHistory();
-      // Sort by most recent first
-      const sortedLogs = dbLogs.sort(
-        (a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()
-      );
-      setLogs(sortedLogs);
-    } catch (e) {
-      console.error("Failed to load logs from DB", e);
-      setLogs([]);
-    }
-  };
+const loadLogs = async () => {
+  try {
+    const dbLogs = await getHistory();
+
+    // Filter only real calls: incoming, outgoing, missed
+    const realCalls = dbLogs.filter((log) =>
+      ["incoming", "outgoing", "missed"].includes(log.type)
+    );
+
+    setLogs(realCalls); // Set only real calls
+  } catch (e) {
+    console.error("Failed to load logs from DB", e);
+    setLogs([]);
+  }
+};
 
   useEffect(() => {
     loadLogs();
-    const interval = setInterval(loadLogs, 5000); // auto-refresh every 5 sec
-    return () => clearInterval(interval);
   }, []);
 
   const onRefresh = useCallback(async () => {
@@ -43,11 +48,17 @@ export default function HistoryScreen() {
   const renderCallIcon = (type: CallLog["type"]) => {
     switch (type) {
       case "incoming":
-        return <MaterialIcons name="call-received" size={20} color="#1abc9c" />;
+        return (
+          <MaterialIcons name="call-received" size={20} color="#1abc9c" />
+        );
       case "outgoing":
-        return <MaterialIcons name="call-made" size={20} color="#3498db" />;
+        return (
+          <MaterialIcons name="call-made" size={20} color="#3498db" />
+        );
       case "missed":
-        return <MaterialIcons name="call-missed" size={20} color="#e74c3c" />;
+        return (
+          <MaterialIcons name="call-missed" size={20} color="#e74c3c" />
+        );
       default:
         return <MaterialIcons name="call" size={20} color="#7f8c8d" />;
     }
@@ -60,12 +71,16 @@ export default function HistoryScreen() {
           {renderCallIcon(item.type)}
           <Text style={styles.number}>{item.number || "Unknown"}</Text>
         </View>
-        <Text style={styles.time}>{item.time}</Text>
+        <Text style={styles.time}>
+          {new Date(item.time).toLocaleString()}
+        </Text>
       </View>
 
       <View style={styles.cardRight}>
         {item.type !== "missed" && item.duration > 0 && (
-          <Text style={styles.durationText}>{formatDuration(item.duration)}</Text>
+          <Text style={styles.durationText}>
+            {formatDuration(item.duration)}
+          </Text>
         )}
       </View>
     </View>
@@ -77,11 +92,17 @@ export default function HistoryScreen() {
         data={logs}
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.list}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
         renderItem={renderItem}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <MaterialIcons name="history-toggle-off" size={60} color="#dcdde1" />
+            <MaterialIcons
+              name="history-toggle-off"
+              size={60}
+              color="#dcdde1"
+            />
             <Text style={styles.emptyText}>No call history yet</Text>
           </View>
         }
@@ -102,14 +123,15 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderRadius: 12,
     elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
   },
   cardLeft: { flex: 1 },
   numberRow: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
-  number: { fontSize: 16, fontWeight: "600", color: "#2d3436", marginLeft: 8 },
+  number: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#2d3436",
+    marginLeft: 8,
+  },
   time: { fontSize: 13, color: "#95a5a6", marginLeft: 28 },
   cardRight: {
     paddingHorizontal: 10,
@@ -119,10 +141,151 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  durationText: { fontSize: 13, fontWeight: "700", color: "#16a085" },
-  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", marginTop: 100 },
-  emptyText: { fontSize: 16, color: "#bdc3c7", marginTop: 10 },
+  durationText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#16a085",
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 100,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#bdc3c7",
+    marginTop: 10,
+  },
 });
+
+
+
+// import React, { useEffect, useState, useCallback } from "react";
+// import { View, Text, FlatList, StyleSheet, RefreshControl } from "react-native";
+// import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+// import { CallLog } from "../utils/CallRecorder";
+// import { getHistory } from "../db/database";
+
+// export default function HistoryScreen() {
+//   const [logs, setLogs] = useState<CallLog[]>([]);
+//   const [refreshing, setRefreshing] = useState(false);
+
+//   const formatDuration = (totalSeconds: number) => {
+//     const mins = Math.floor(totalSeconds / 60);
+//     const secs = totalSeconds % 60;
+//     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+//   };
+
+//   const loadLogs = async () => {
+//     try {
+//       const dbLogs = await getHistory();
+//       // Sort by most recent first
+//       const sortedLogs = dbLogs.sort(
+//         (a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()
+//       );
+//       setLogs(sortedLogs);
+//     } catch (e) {
+//       console.error("Failed to load logs from DB", e);
+//       setLogs([]);
+//     }
+//   };
+
+//   useEffect(() => {
+//     loadLogs();
+//     const interval = setInterval(loadLogs, 5000); // auto-refresh every 5 sec
+//     return () => clearInterval(interval);
+//   }, []);
+
+//   const onRefresh = useCallback(async () => {
+//     setRefreshing(true);
+//     await loadLogs();
+//     setRefreshing(false);
+//   }, []);
+
+//   const renderCallIcon = (type: CallLog["type"]) => {
+//     switch (type) {
+//       case "incoming":
+//         return <MaterialIcons name="call-received" size={20} color="#1abc9c" />;
+//       case "outgoing":
+//         return <MaterialIcons name="call-made" size={20} color="#3498db" />;
+//       case "missed":
+//         return <MaterialIcons name="call-missed" size={20} color="#e74c3c" />;
+//       default:
+//         return <MaterialIcons name="call" size={20} color="#7f8c8d" />;
+//     }
+//   };
+
+//   const renderItem = ({ item }: { item: CallLog }) => (
+//     <View style={styles.card}>
+//       <View style={styles.cardLeft}>
+//         <View style={styles.numberRow}>
+//           {renderCallIcon(item.type)}
+//           <Text style={styles.number}>{item.number || "Unknown"}</Text>
+//         </View>
+//         <Text style={styles.time}>{item.time}</Text>
+//       </View>
+
+//       <View style={styles.cardRight}>
+//         {item.type !== "missed" && item.duration > 0 && (
+//           <Text style={styles.durationText}>{formatDuration(item.duration)}</Text>
+//         )}
+//       </View>
+//     </View>
+//   );
+
+//   return (
+//     <View style={styles.screenContainer}>
+//       <FlatList
+//         data={logs}
+//         keyExtractor={(item) => item.id.toString()}
+//         contentContainerStyle={styles.list}
+//         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+//         renderItem={renderItem}
+//         ListEmptyComponent={
+//           <View style={styles.emptyContainer}>
+//             <MaterialIcons name="history-toggle-off" size={60} color="#dcdde1" />
+//             <Text style={styles.emptyText}>No call history yet</Text>
+//           </View>
+//         }
+//       />
+//     </View>
+//   );
+// }
+
+// const styles = StyleSheet.create({
+//   screenContainer: { flex: 1, backgroundColor: "#f8f9fa" },
+//   list: { padding: 16, paddingBottom: 32 },
+//   card: {
+//     flexDirection: "row",
+//     justifyContent: "space-between",
+//     alignItems: "center",
+//     backgroundColor: "#fff",
+//     padding: 14,
+//     marginBottom: 10,
+//     borderRadius: 12,
+//     elevation: 2,
+//     shadowColor: "#000",
+//     shadowOffset: { width: 0, height: 1 },
+//     shadowOpacity: 0.1,
+//     shadowRadius: 3,
+//   },
+//   cardLeft: { flex: 1 },
+//   numberRow: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
+//   number: { fontSize: 16, fontWeight: "600", color: "#2d3436", marginLeft: 8 },
+//   time: { fontSize: 13, color: "#95a5a6", marginLeft: 28 },
+//   cardRight: {
+//     paddingHorizontal: 10,
+//     paddingVertical: 4,
+//     borderRadius: 8,
+//     minWidth: 50,
+//     alignItems: "center",
+//     justifyContent: "center",
+//   },
+//   durationText: { fontSize: 13, fontWeight: "700", color: "#16a085" },
+//   emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", marginTop: 100 },
+//   emptyText: { fontSize: 16, color: "#bdc3c7", marginTop: 10 },
+// });
 
 
 

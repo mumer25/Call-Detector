@@ -18,7 +18,7 @@ import TimelineScreen from './src/screens/TimelineScreen';
 import SplashScreen from './src/screens/SplashScreen';
 import LoginScreen from './src/screens/LoginScreen'; // new
 
-import { startCallListener } from './src/utils/CallRecorder';
+import { startCallSyncListener  } from './src/utils/CallRecorder';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 type Tab = 'leads' | 'dialer' | 'history' | 'reports' | 'timeline';
@@ -35,6 +35,7 @@ export default function App() {
   const handleSplashFinish = useCallback(() => {
     setIsLoading(false);
   }, []);
+
 
   useEffect(() => {
     if (activeTab === 'timeline') {
@@ -60,20 +61,21 @@ export default function App() {
 
   // Load leads and start call listener
   useEffect(() => {
-    startCallListener();
+  const initializeApp = async () => {
+    try {
+      await initDB();
+      await startCallSyncListener();
 
-    const loadLeads = async () => {
-      try {
-        await initDB(); // initialize SQLite DB
-        const dbLeads = await getLeads(); // fetch all leads from DB
-        setLeads(dbLeads);
-      } catch (e) {
-        console.warn('Failed to load leads from DB:', e);
-      }
-    };
+      const dbLeads = await getLeads();
+      setLeads(dbLeads);
+    } catch (e) {
+      console.warn('Initialization error:', e);
+    }
+  };
 
-    loadLeads();
-  }, []);
+  initializeApp();
+}, []);
+
 
   const handleSelectLead = (phone: string) => {
     const normalizedPhone = phone.replace(/\D/g, '');

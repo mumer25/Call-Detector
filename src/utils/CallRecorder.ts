@@ -1,98 +1,189 @@
-import { NativeModules, NativeEventEmitter, Platform, PermissionsAndroid } from "react-native";
-import { insertHistory } from "../db/database"; // SQLite helper
-
-export type CallLog = {
-  id: string;
-  number: string;
-  duration: number; // in seconds
-  time: string; // call start time
-  type: "incoming" | "outgoing" | "missed";
-};
+import {
+  NativeModules,
+  Platform,
+  PermissionsAndroid,
+  AppState,
+} from "react-native";
+import { insertHistory } from "../db/database";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { CallDetector } = NativeModules;
-const emitter = new NativeEventEmitter(CallDetector);
 
-// Track active calls
-type ActiveCall = {
-  startTime: number;
-  type: "incoming" | "outgoing";
-};
-const activeCalls: Record<string, ActiveCall> = {};
+const LAST_SYNC_KEY = "LAST_CALL_SYNC";
 
-// Normalize phone numbers to prevent duplicates
-const normalizeNumber = (num: string) => num.replace(/\D/g, "");
+const normalizeNumber = (num: string) => num?.replace(/\D/g, "") || "";
 
-export async function requestCallPermissions() {
+async function requestCallPermissions() {
   if (Platform.OS !== "android") return;
 
   await PermissionsAndroid.requestMultiple([
     PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
     PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
-    PermissionsAndroid.PERMISSIONS.CALL_PHONE,
   ]);
 }
 
-export async function startCallListener() {
+async function getLastSyncDate(): Promise<number> {
+  const value = await AsyncStorage.getItem(LAST_SYNC_KEY);
+  return value ? parseInt(value, 10) : 0;
+}
+
+async function setLastSyncDate(date: number) {
+  await AsyncStorage.setItem(LAST_SYNC_KEY, date.toString());
+}
+
+export async function syncAllCalls() {
+  if (Platform.OS !== "android") return;
+
+  try {
+    const lastSync = await getLastSyncDate();
+
+    const calls = await CallDetector.getCallsSince(lastSync);
+
+    if (!calls || calls.length === 0) return;
+
+    let latestDate = lastSync;
+
+    for (const call of calls) {
+      const number = normalizeNumber(call.number);
+      const duration = call.duration;
+      const type = call.type;
+      const date = call.date;
+
+      await insertHistory(
+        null,
+        number,
+        new Date(date).toLocaleString(),
+        duration,
+        type
+      );
+
+      if (date > latestDate) {
+        latestDate = date;
+      }
+    }
+
+    await setLastSyncDate(latestDate);
+
+    console.log("Synced calls:", calls.length);
+
+  } catch (e) {
+    console.log("Call sync error", e);
+  }
+}
+
+export async function startCallSyncListener() {
   if (Platform.OS !== "android") return;
 
   await requestCallPermissions();
 
-  CallDetector.startListening?.();
+  // 🔥 Sync when app starts
+  await syncAllCalls();
 
-  emitter.addListener(
-    "CallEvent",
-    async (data: { state: string; number?: string; type?: "INCOMING" | "OUTGOING" }) => {
-      if (!data.number) return;
-      const number = normalizeNumber(data.number);
-      const now = Date.now();
-
-      // --- Call started ---
-      if (data.state === "Incoming" || data.state === "OffHook") {
-        if (!activeCalls[number]) {
-          activeCalls[number] = {
-            startTime: now,
-            type: data.type === "OUTGOING" ? "outgoing" : "incoming",
-          };
-        }
-      }
-
-      // --- Call ended ---
-      if (data.state === "Disconnected") {
-        const activeCall = activeCalls[number];
-        let log: CallLog;
-
-        if (!activeCall) {
-          // Missed call (never picked up)
-          log = {
-            id: now.toString(),
-            number,
-            duration: 0,
-            type: "missed",
-            time: new Date(now).toLocaleString(),
-          };
-        } else {
-          const durationSec = Math.floor((now - activeCall.startTime) / 1000);
-          log = {
-            id: now.toString(),
-            number,
-            duration: durationSec,
-            type: durationSec > 0 ? activeCall.type : "missed",
-            time: new Date(activeCall.startTime).toLocaleString(),
-          };
-
-          delete activeCalls[number]; // remove from active calls to prevent duplicates
-        }
-
-        // --- Save log to DB ---
-        try {
-          await insertHistory(null, log.number, log.time, log.duration, log.type);
-        } catch (err) {
-          console.error("Failed to save call log to DB", err);
-        }
-      }
+  // 🔥 Sync when app returns from background
+  AppState.addEventListener("change", (state) => {
+    if (state === "active") {
+      syncAllCalls();
     }
-  );
+  });
 }
+
+
+
+// import { NativeModules, NativeEventEmitter, Platform, PermissionsAndroid } from "react-native";
+// import { insertHistory } from "../db/database"; // SQLite helper
+
+// export type CallLog = {
+//   id: string;
+//   number: string;
+//   duration: number; // in seconds
+//   time: string; // call start time
+//   type: "incoming" | "outgoing" | "missed";
+// };
+
+// const { CallDetector } = NativeModules;
+// const emitter = new NativeEventEmitter(CallDetector);
+
+// // Track active calls
+// type ActiveCall = {
+//   startTime: number;
+//   type: "incoming" | "outgoing";
+// };
+// const activeCalls: Record<string, ActiveCall> = {};
+
+// // Normalize phone numbers to prevent duplicates
+// const normalizeNumber = (num: string) => num.replace(/\D/g, "");
+
+// export async function requestCallPermissions() {
+//   if (Platform.OS !== "android") return;
+
+//   await PermissionsAndroid.requestMultiple([
+//     PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
+//     PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
+//     PermissionsAndroid.PERMISSIONS.CALL_PHONE,
+//   ]);
+// }
+
+// export async function startCallListener() {
+//   if (Platform.OS !== "android") return;
+
+//   await requestCallPermissions();
+
+//   CallDetector.startListening?.();
+
+//   emitter.addListener(
+//     "CallEvent",
+//     async (data: { state: string; number?: string; type?: "INCOMING" | "OUTGOING" }) => {
+//       if (!data.number) return;
+//       const number = normalizeNumber(data.number);
+//       const now = Date.now();
+
+//       // --- Call started ---
+//       if (data.state === "Incoming" || data.state === "OffHook") {
+//         if (!activeCalls[number]) {
+//           activeCalls[number] = {
+//             startTime: now,
+//             type: data.type === "OUTGOING" ? "outgoing" : "incoming",
+//           };
+//         }
+//       }
+
+//       // --- Call ended ---
+//       if (data.state === "Disconnected") {
+//         const activeCall = activeCalls[number];
+//         let log: CallLog;
+
+//         if (!activeCall) {
+//           // Missed call (never picked up)
+//           log = {
+//             id: now.toString(),
+//             number,
+//             duration: 0,
+//             type: "missed",
+//             time: new Date(now).toLocaleString(),
+//           };
+//         } else {
+//           const durationSec = Math.floor((now - activeCall.startTime) / 1000);
+//           log = {
+//             id: now.toString(),
+//             number,
+//             duration: durationSec,
+//             type: durationSec > 0 ? activeCall.type : "missed",
+//             time: new Date(activeCall.startTime).toLocaleString(),
+//           };
+
+//           delete activeCalls[number]; // remove from active calls to prevent duplicates
+//         }
+
+//         // --- Save log to DB ---
+//         try {
+//           await insertHistory(null, log.number, log.time, log.duration, log.type);
+//         } catch (err) {
+//           console.error("Failed to save call log to DB", err);
+//         }
+//       }
+//     }
+//   );
+// }
 
 
 
