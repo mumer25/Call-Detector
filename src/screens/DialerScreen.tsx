@@ -87,15 +87,33 @@ export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimelin
   try {
     const logs = await getHistory();
 
+    // const mapped: DialerCallLog[] = logs
+    //   .filter((l) => normalize(l.number) === normalize(phone))
+    //   .map((l) => ({
+    //     id: Number(l.id),                 // ✅ FIX: string → number
+    //     number: l.number,
+    //     type: l.type ?? "dialed",
+    //     duration: l.duration ?? 0,
+    //     time: l.time,
+    //   }));
+
     const mapped: DialerCallLog[] = logs
-      .filter((l) => normalize(l.number) === normalize(phone))
-      .map((l) => ({
-        id: Number(l.id),                 // ✅ FIX: string → number
-        number: l.number,
-        type: l.type ?? "dialed",
-        duration: l.duration ?? 0,
-        time: l.time,
-      }));
+  .filter((l) => normalize(l.number) === normalize(phone))
+  .map((l) => {
+    // Force type into allowed values
+    let type: DialerCallLog["type"] = "dialed"; // default
+    if (l.type === "incoming" || l.type === "outgoing" || l.type === "missed") {
+      type = l.type;
+    }
+
+    return {
+      id: Number(l.id),                 // string → number
+      number: l.number,
+      type,
+      duration: l.duration ?? 0,
+      time: l.time,
+    };
+  });
 
     setLeadLogs(mapped);
   } catch (e) {
@@ -341,25 +359,36 @@ const goToPreviousLead = () => {
       </ScrollView>
 
       {/* FIXED PREVIOUS/NEXT BUTTONS */}
-      <View style={styles.fixedBottom}>
-        <TouchableOpacity style={styles.prevNextButton} onPress={goToPreviousLead}>
-          <Ionicons name="chevron-back" size={24} color="#fff" />
-          <Text style={styles.prevNextText}>Previous Lead</Text>
-        </TouchableOpacity>
+     <View style={styles.fixedBottom}>
+  {/* Previous Lead */}
+<TouchableOpacity style={styles.prevNextButton} onPress={goToPreviousLead}>
+  <View style={styles.iconContainer}>
+    <Ionicons name="chevron-back" size={24} color="#fff" />
+  </View>
+  <View style={styles.textContainer}>
+    <Text style={styles.prevNextText}>Previous Lead</Text>
+  </View>
+</TouchableOpacity>
 
-
-          <TouchableOpacity
-          style={styles.timelineButton}
-    onPress={() => onOpenTimeline && onOpenTimeline()} // ✅ navigate to Timeline
+  {/* Timeline */}
+  <TouchableOpacity
+    style={styles.timelineButton}
+    onPress={() => onOpenTimeline && onOpenTimeline()}
   >
-    <Ionicons name="time" size={52} color="#038ba0" />
+    <Ionicons name="time" size={36} color="#038ba0" />
   </TouchableOpacity>
 
-        <TouchableOpacity style={styles.prevNextButton} onPress={goToNextLead}>
-          <Text style={styles.prevNextText}>Next Lead</Text>
-          <Ionicons name="chevron-forward" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
+  {/* Next Lead */}
+ <TouchableOpacity style={styles.prevNextButton} onPress={goToNextLead}>
+  <View style={styles.textContainer}>
+    <Text style={styles.prevNextText}>Next Lead</Text>
+  </View>
+  <View style={styles.iconContainer}>
+    <Ionicons name="chevron-forward" size={24} color="#fff" />
+  </View>
+</TouchableOpacity>
+</View>
+
 
       {/* INTEREST MODAL */}
       <Modal transparent visible={showInterestModal} animationType="fade">
@@ -496,12 +525,12 @@ const styles = StyleSheet.create({
   statusBadge: {
     marginTop: 6,
     backgroundColor: "#ecf0f1",
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
     borderRadius: 6,
     alignSelf: "flex-start",
   },
-  statusBadgeText: { fontSize: 11, fontWeight: "600", color: "#555" },
-  historySummary: { marginTop: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusBadgeText: { fontSize: 10, fontWeight: "600", color: "#555" },
+  historySummary: { marginTop: 2, paddingHorizontal: 2, paddingVertical: 4, borderRadius: 6 },
   historyText: { fontSize: 10, color: "#34495e" },
   callButton: {
     backgroundColor: "#2ecc71",
@@ -524,10 +553,53 @@ const styles = StyleSheet.create({
   },
   tickContainer: { alignItems: "center", marginTop: 10 },
   tickCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#2ecc71", alignItems: "center", justifyContent: "center", elevation: 4 },
-  fixedBottom: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", padding: 12 },
-  prevNextButton: { flex: 0.48, height: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#1abc9c", paddingVertical: 12, borderRadius: 10, gap: 6 },
-  prevNextText: { color: "#fff", fontWeight: "700", fontSize: 12 },
-  timelineButton: { flex: 0.28, height: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", },
+  fixedBottom: {
+  position: "absolute",
+  bottom: 12,
+  left: 12,
+  right: 12,
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+},
+
+// Make both buttons same width
+prevNextButton: {
+  flex: 1,
+  flexDirection: "row",
+  alignItems: "center",
+  backgroundColor: "#1abc9c",
+  paddingVertical: 12,
+  borderRadius: 12,
+  marginHorizontal: 2,
+},
+
+iconContainer: {
+  width: 18,              // fixed width for icon
+  alignItems: "center",   // center icon in its container
+},
+textContainer: {
+  flex: 0.9,                 // takes remaining space
+  alignItems: "center",    // center text
+},
+
+prevNextText: {
+  color: "#fff",
+  fontWeight: "700",
+  fontSize: 12,
+  textAlign: "center",
+},
+
+timelineButton: {
+  width: 60,
+  height: 60,
+  borderRadius: 30,
+  backgroundColor: "#fff",
+  alignItems: "center",
+  justifyContent: "center",
+  marginHorizontal: 4,
+  elevation: 4,
+},
   modalContainer: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
   modalContent: { backgroundColor: "#fff", padding: 20, borderRadius: 14, width: "80%", alignItems: "center" },
   modalTitle: { fontSize: 16, fontWeight: "700", marginBottom: 12 },
