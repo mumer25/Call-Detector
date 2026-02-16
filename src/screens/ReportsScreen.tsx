@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
+  TextInput,
 } from "react-native";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
@@ -22,6 +23,9 @@ export default function ReportsScreen() {
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [showPicker, setShowPicker] = useState<"start" | "end" | null>(null);
+
+  // Search filter
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   useEffect(() => {
     const loadData = async () => {
@@ -63,13 +67,18 @@ export default function ReportsScreen() {
     return { totalCalls, totalDuration };
   };
 
-  const leadsWithCalls = leads.filter(
-    (lead) => getLeadCalls(lead.phone).totalCalls > 0
-  );
+  // Filter leads by calls, date range, and search query
+  const leadsWithCalls = leads
+    .filter((lead) => getLeadCalls(lead.phone).totalCalls > 0)
+    .filter(
+      (lead) =>
+        lead.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        lead.phone.includes(searchQuery)
+    );
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      {/* Header */}
+      {/* Header + Filter */}
       <View style={styles.header}>
         <Text style={styles.heading}>Lead Reports</Text>
         <TouchableOpacity
@@ -82,6 +91,17 @@ export default function ReportsScreen() {
             {endDate ? endDate.toLocaleDateString() : "End Date"}
           </Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search leads..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        <MaterialIcons name="search" size={20} color="#7f8c8d" style={styles.searchIcon} />
       </View>
 
       {/* DateTimePicker */}
@@ -97,10 +117,10 @@ export default function ReportsScreen() {
             }
             if (showPicker === "start") {
               setStartDate(date);
-              setShowPicker("end"); // open end date picker next
+              setShowPicker("end"); 
             } else if (showPicker === "end") {
               setEndDate(date);
-              setShowPicker(null); // done selecting range
+              setShowPicker(null); 
             }
           }}
         />
@@ -120,7 +140,6 @@ export default function ReportsScreen() {
 
           return (
             <View key={lead.id} style={styles.card}>
-              {/* Left: Profile icon + name */}
               <View style={styles.left}>
                 <View style={styles.avatar}>
                   <MaterialIcons name="person" size={28} color="#fff" />
@@ -128,14 +147,12 @@ export default function ReportsScreen() {
                 <Text style={styles.name}>{lead.name}</Text>
               </View>
 
-              {/* Middle: Total Calls */}
               <View style={styles.middle}>
                 <FontAwesome name="phone" size={24} color="#1abc9c" />
                 <Text style={styles.statValue}>{totalCalls}</Text>
                 <Text style={styles.statLabel}>Total Calls</Text>
               </View>
 
-              {/* Right: Total Duration */}
               <View style={styles.right}>
                 <MaterialIcons name="timer" size={24} color="#3498db" />
                 <Text style={styles.statValue}>{formatDuration(totalDuration)}</Text>
@@ -163,7 +180,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 12,
   },
   heading: {
     fontSize: 22,
@@ -183,7 +200,26 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginLeft: 6,
     fontWeight: "600",
-    fontSize:10,
+    fontSize: 10,
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    elevation: 2,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingVertical: 4,
+    color: "#2c3e50",
+  },
+  searchIcon: {
+    marginLeft: 8,
   },
   card: {
     flexDirection: "row",
