@@ -198,7 +198,7 @@ const BottomTabs: React.FC<BottomTabProps> = ({
       <Text
         style={[styles.tabText, activeTab === 'leads' && styles.tabTextActive]}
       >
-        Leads
+        Home
       </Text>
     </TouchableOpacity>
 
