@@ -186,6 +186,7 @@ export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimelin
   //     );
   //   }
   // };
+
   const openWhatsAppFollowUp = async () => {
   const message = note
     ? `Hi ${leadName}, ${note}`
@@ -198,15 +199,15 @@ export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimelin
   try {
     await Linking.openURL(whatsappUrl);
 
-    // Insert WhatsApp log
+    // Insert WhatsApp log (optional, immediately)
     await insertHistory(null, phone, new Date().toISOString(), 0, "whatsapp");
 
-    // Automatically update lead status
-  const updatedStatus: LeadStatus = `Follow Up: ${new Date().toLocaleString()}`;
-setStatus(updatedStatus);
-await updateLeadStatusDB(phone, updatedStatus);
+    // Instead of updating status immediately, set as pending
+    const updatedStatus: LeadStatus = `Follow Up: ${new Date().toLocaleString()}`;
+    setPendingStatus(updatedStatus);
+    setShowTick(true);
 
-    // Reload logs
+    // Reload logs to show the WhatsApp entry
     loadLeadLogs();
   } catch {
     Alert.alert(
@@ -215,6 +216,36 @@ await updateLeadStatusDB(phone, updatedStatus);
     );
   }
 };
+
+//   const openWhatsAppFollowUp = async () => {
+//   const message = note
+//     ? `Hi ${leadName}, ${note}`
+//     : `Hi ${leadName}, just following up regarding our conversation.`;
+
+//   const whatsappUrl = `whatsapp://send?phone=${getWhatsAppNumber()}&text=${encodeURIComponent(
+//     message
+//   )}`;
+
+//   try {
+//     await Linking.openURL(whatsappUrl);
+
+//     // Insert WhatsApp log
+//     await insertHistory(null, phone, new Date().toISOString(), 0, "whatsapp");
+
+//     // Automatically update lead status
+//   const updatedStatus: LeadStatus = `Follow Up: ${new Date().toLocaleString()}`;
+// setStatus(updatedStatus);
+// await updateLeadStatusDB(phone, updatedStatus);
+
+//     // Reload logs
+//     loadLeadLogs();
+//   } catch {
+//     Alert.alert(
+//       "WhatsApp not available",
+//       "Please install WhatsApp or check the phone number format."
+//     );
+//   }
+// };
 
 
   const handleActionClick = (

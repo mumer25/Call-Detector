@@ -131,7 +131,7 @@ export default function LeadsScreen({ onSelectLead }: Props) {
           >
             <View style={styles.left}>
               <View style={styles.nameRow}>
-                <Text style={styles.name}>{item.name}</Text>
+                <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
                 <Text style={styles.separator}>|</Text>
                 <Text style={styles.source}>{renderSourceIcon(item.source)}</Text>
               </View>
@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
   left: { flex: 3 },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "nowrap" },
   separator: { fontSize: 14, color: "#7f8c8d", marginHorizontal: 4 },
-  name: { fontSize: 16, fontWeight: "700", color: "#2c3e50" },
+  name: { fontSize: 16, fontWeight: "700", color: "#2c3e50", width: 90, },
   source: { fontSize: 14 },
   phone: { fontSize: 14, color: "#7f8c8d", marginTop: 4 },
   center: { flex: 1, alignItems: "center" },
