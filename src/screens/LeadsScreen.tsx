@@ -73,13 +73,13 @@ export default function LeadsScreen({ onSelectLead }: Props) {
   const renderSourceIcon = (source: Lead["source"]) => {
     switch (source) {
       case "fb":
-        return <FontAwesome name="facebook" size={20} color="#1877F2" />;
+        return <FontAwesome name="facebook" size={14} color="#1877F2" />;
       case "jd":
-        return <MaterialIcons name="work" size={20} color="#2C3E50" />;
+        return <MaterialIcons name="work" size={14} color="#2C3E50" />;
       case "web":
-        return <MaterialIcons name="public" size={20} color="#27AE60" />;
+        return <MaterialIcons name="public" size={14} color="#27AE60" />;
       default:
-        return <MaterialIcons name="help-outline" size={20} color="#7f8c8d" />;
+        return <MaterialIcons name="help-outline" size={14} color="#7f8c8d" />;
     }
   };
 
@@ -132,7 +132,8 @@ export default function LeadsScreen({ onSelectLead }: Props) {
             <View style={styles.left}>
               <View style={styles.nameRow}>
                 <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
-                <Text style={styles.separator}>|</Text>
+                {/* <Text style={styles.separator}>|</Text> */}
+                 <View style={styles.separatorLine} />
                 <Text style={styles.source}>{renderSourceIcon(item.source)}</Text>
               </View>
               <Text style={styles.phone}>{item.phone}</Text>
@@ -195,7 +196,13 @@ const styles = StyleSheet.create({
   left: { flex: 3 },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "nowrap" },
   separator: { fontSize: 14, color: "#7f8c8d", marginHorizontal: 4 },
-  name: { fontSize: 16, fontWeight: "700", color: "#2c3e50", width: 90, },
+  separatorLine: {
+  width: 1,             // thin vertical line
+  height: 18,           // match text height
+  backgroundColor: "#7f8c8d",
+  alignSelf: "center",  // vertical align center
+},
+  name: { fontSize: 16, fontWeight: "700", color: "#2c3e50", width: 96, },
   source: { fontSize: 14 },
   phone: { fontSize: 14, color: "#7f8c8d", marginTop: 4 },
   center: { flex: 1, alignItems: "center" },
