@@ -50,22 +50,33 @@ export default function ReportsScreen() {
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
   };
 
-  const getLeadCalls = (phone: string) => {
-    const leadLogs = logs.filter((log) => {
-      if (log.number !== phone) return false;
+const getLeadCalls = (phone: string) => {
+  const leadLogs = logs.filter((log) => {
+    if (log.number !== phone) return false;
 
-      const logTime = new Date(log.time);
-      if (startDate && logTime < startDate) return false;
-      if (endDate && logTime > endDate) return false;
+    const logTime = new Date(log.time);
 
-      return log.type === "incoming" || log.type === "outgoing" || log.type === "missed";
-    });
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0); // start of the day
+      if (logTime < start) return false;
+    }
 
-    const totalCalls = leadLogs.length;
-    const totalDuration = leadLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // end of the day
+      if (logTime > end) return false;
+    }
 
-    return { totalCalls, totalDuration };
-  };
+    return log.type === "incoming" || log.type === "outgoing" || log.type === "missed";
+  });
+
+  const totalCalls = leadLogs.length;
+  const totalDuration = leadLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
+
+  return { totalCalls, totalDuration };
+};
+
 
   // Filter leads by calls, date range, and search query
   const leadsWithCalls = leads
