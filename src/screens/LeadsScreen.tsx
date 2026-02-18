@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,70 +6,130 @@ import {
   TouchableOpacity,
   StyleSheet,
   TextInput,
+  ActivityIndicator,
 } from "react-native";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
-import { initDB, getLeads, insertLead, searchLeads } from "../db/database"; // SQLite helper functions
+import {
+  initDB,
+  getLeads,
+  searchLeads,
+  insertLead,
+  getLoggedInUser,
+} from "../db/database";
 
+// ---------------- TYPES ----------------
 export type Lead = {
   id: number;
   name: string;
   phone: string;
-  status: "NEW" | "OLD" | "Interested" | "Not Interested" | "Follow Up";
+  status: string;
   assignee: string;
-  source: "fb" | "jd" | "web";
+  source: string;
+  city?: string;
 };
 
 type Props = {
   onSelectLead: (phone: string) => void;
-  onOpenReport?: () => void;   // optional if you want
-  onOpenHistory?: () => void;  // optional if you want
+  onOpenReport?: () => void;
+  onOpenHistory?: () => void;
 };
 
-
+// ---------------- COMPONENT ----------------
 export default function LeadsScreen({ onSelectLead }: Props) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [syncing, setSyncing] = useState<boolean>(false);
 
-  useEffect(() => {
-    (async () => {
-      await initDB();
-      await loadLeads();
-    })();
+  // ---------------- MAP SOURCE ----------------
+  const mapLeadSource = useCallback((source: string): "fb" | "jd" | "web" => {
+    if (!source) return "web";
+    source = source.toLowerCase();
+    if (source.includes("facebook")) return "fb";
+    if (source.includes("dealer") || source.includes("jd")) return "jd";
+    return "web";
   }, []);
 
-  const loadLeads = async () => {
+  // ---------------- FETCH API & STORE ----------------
+  const fetchAndUpdateLeads = useCallback(async () => {
     try {
-      let savedLeads = await getLeads();
-      if (savedLeads.length === 0) {
-        // Insert dummy leads if DB is empty
-        const dummy: Lead[] = [
-          { id: 0, name: "Ali", phone: "03001234567", status: "NEW", assignee: "Umer", source: "fb" },
-          { id: 0, name: "Umer", phone: "03229199459", status: "NEW", assignee: "Umer", source: "web" },
-          { id: 0, name: "Noman", phone: "03003334444", status: "NEW", assignee: "Ali", source: "fb" },
-          { id: 0, name: "Ahmad", phone: "03005556666", status: "OLD", assignee: "Ali", source: "fb" },
-        ];
-        for (const lead of dummy) {
-          await insertLead(lead.name, lead.phone, lead.status, lead.assignee, lead.source);
-        }
-        savedLeads = await getLeads();
-      }
-      setLeads(savedLeads);
-    } catch (error) {
-      console.error("Error loading leads from DB:", error);
-    }
-  };
+      setSyncing(true);
+      const user = await getLoggedInUser();
+      if (!user?.entity_id) return;
 
+      let offset = 0;
+      const limit = 25;
+      let hasMore = true;
+
+      while (hasMore) {
+        const url = `https://server103.multi-techno.com:8383/ords/ard_holdings/crm_app/get_leads_data?entity_id=${user.entity_id}&offset=${offset}&limit=${limit}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Failed to fetch leads");
+
+        const data = await response.json();
+        const items = data.items || [];
+
+        for (const lead of items) {
+          await insertLead(
+            lead.lead_id,
+            lead.name || "Unknown",
+            lead.phone?.trim() || "N/A",
+            // lead.status || "NEW",
+            lead.last_task_name || "-",
+            lead.assignee || "-",
+            mapLeadSource(lead.lead_source)
+          );
+        }
+
+        hasMore = data.hasMore || false;
+        offset += limit;
+      }
+
+      const updatedLeads = await getLeads();
+      setLeads(updatedLeads);
+    } catch (err) {
+      console.error("Error syncing leads:", err);
+    } finally {
+      setSyncing(false);
+    }
+  }, [mapLeadSource]);
+
+  // ---------------- LOAD FROM DB ----------------
+  const loadLeadsFromDB = useCallback(async () => {
+    try {
+      const savedLeads = await getLeads();
+      setLeads(savedLeads);
+    } catch (err) {
+      console.error("Error loading leads from DB:", err);
+    }
+  }, []);
+
+  // ---------------- INITIAL LOAD ----------------
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await initDB();
+      await loadLeadsFromDB();
+      setLoading(false);
+
+      // Fetch latest leads in background
+      fetchAndUpdateLeads();
+    })();
+  }, [loadLeadsFromDB, fetchAndUpdateLeads]);
+
+  // ---------------- SEARCH HANDLER ----------------
   const handleSearch = async (text: string) => {
     setSearchQuery(text);
     if (text.trim() === "") {
-      await loadLeads();
+      await loadLeadsFromDB();
     } else {
       const results = await searchLeads(text);
       setLeads(results);
     }
   };
 
+  // ---------------- RENDER ICONS & BADGES ----------------
   const renderSourceIcon = (source: Lead["source"]) => {
     switch (source) {
       case "fb":
@@ -88,12 +148,29 @@ export default function LeadsScreen({ onSelectLead }: Props) {
     let textColor = "#7f8c8d";
 
     switch (status) {
-      case "NEW": bgColor = "#1abc9c33"; textColor = "#1abc9c"; break;
-      case "OLD": bgColor = "#e74c3c33"; textColor = "#e74c3c"; break;
-      case "Not Interested": bgColor = "#e74c3c33"; textColor = "#e74c3c"; break;
-      case "Interested": bgColor = "#2ecc7133"; textColor = "#2ecc71"; break;
-      case "Follow Up": bgColor = "#f1c40f33"; textColor = "#f1c40f"; break;
-      default: bgColor = "#bdc3c733"; textColor = "#7f8c8d";
+      case "NEW":
+        bgColor = "#1abc9c33";
+        textColor = "#1abc9c";
+        break;
+      case "OLD":
+        bgColor = "#e74c3c33";
+        textColor = "#e74c3c";
+        break;
+      case "Not Interested":
+        bgColor = "#e74c3c33";
+        textColor = "#e74c3c";
+        break;
+      case "Interested":
+        bgColor = "#2ecc7133";
+        textColor = "#2ecc71";
+        break;
+      case "Follow Up":
+        bgColor = "#f1c40f33";
+        textColor = "#f1c40f";
+        break;
+      default:
+        bgColor = "#bdc3c733";
+        textColor = "#7f8c8d";
     }
 
     return (
@@ -105,6 +182,7 @@ export default function LeadsScreen({ onSelectLead }: Props) {
     );
   };
 
+  // ---------------- RENDER ----------------
   return (
     <View style={styles.container}>
       {/* SEARCH BAR */}
@@ -119,46 +197,53 @@ export default function LeadsScreen({ onSelectLead }: Props) {
         <MaterialIcons name="search" size={22} color="#7f8c8d" style={styles.searchIcon} />
       </View>
 
-      {/* LIST */}
-      <FlatList
-        data={leads}
-        keyExtractor={(item) => item.id.toString()}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            onPress={() => onSelectLead(item.phone)}
-          >
-            <View style={styles.left}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
-                {/* <Text style={styles.separator}>|</Text> */}
-                 <View style={styles.separatorLine} />
-                <Text style={styles.source}>{renderSourceIcon(item.source)}</Text>
-              </View>
-              <Text style={styles.phone}>{item.phone}</Text>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1abc9c" />
+        </View>
+      ) : (
+        <>
+          {syncing && (
+            <View style={styles.syncingOverlay}>
+              {/* <ActivityIndicator size="small" color="#1abc9c" />
+              <Text style={styles.syncingText}>Loading leads...</Text> */}
             </View>
-            <View style={styles.center}>{renderStatusBadge(item.status)}</View>
-            <View style={styles.right}>
-              <View style={styles.avatar}>
-                <MaterialIcons name="person" size={24} color="#fff" />
-              </View>
-              <Text style={styles.assignee}>{item.assignee}</Text>
-            </View>
-          </TouchableOpacity>
-        )}
-      />
+          )}
+          <FlatList
+            data={leads}
+            keyExtractor={(item) => item.id.toString()}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.card} onPress={() => onSelectLead(item.phone)}>
+                <View style={styles.left}>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
+                    <View style={styles.separatorLine} />
+                    {renderSourceIcon(item.source)}
+                  </View>
+                  <Text style={styles.phone}>{item.phone || "N/A"}</Text>
+                  {item.city ? <Text style={styles.city}>{item.city}</Text> : null}
+                </View>
+                <View style={styles.center}>{renderStatusBadge(item.status)}</View>
+                <View style={styles.right}>
+                  <View style={styles.avatar}>
+                    <MaterialIcons name="person" size={24} color="#fff" />
+                  </View>
+                  <Text style={styles.assignee}>{item.assignee || "-"}</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          />
+        </>
+      )}
     </View>
   );
 }
 
+// ---------------- STYLES ----------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#eef5f4" },
-  searchWrapper: {
-    position: "relative",
-    marginHorizontal: 12,
-    marginVertical: 10,
-  },
+  searchWrapper: { position: "relative", marginHorizontal: 12, marginVertical: 10 },
   searchBar: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -173,11 +258,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  searchIcon: {
-    position: "absolute",
-    right: 18,
-    top: 10,
-  },
+  searchIcon: { position: "absolute", right: 18, top: 10 },
   list: { paddingHorizontal: 12, paddingBottom: 32 },
   card: {
     flexDirection: "row",
@@ -194,47 +275,534 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   left: { flex: 3 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "nowrap" },
-  separator: { fontSize: 14, color: "#7f8c8d", marginHorizontal: 4 },
-  separatorLine: {
-  width: 1,             // thin vertical line
-  height: 18,           // match text height
-  backgroundColor: "#7f8c8d",
-  alignSelf: "center",  // vertical align center
-},
-  name: { fontSize: 16, fontWeight: "700", color: "#2c3e50", width: 96, },
-  source: { fontSize: 14 },
+  separatorLine: { width: 1, height: 18, backgroundColor: "#7f8c8d", alignSelf: "center" },
+  name: { fontSize: 16, fontWeight: "700", color: "#2c3e50", width: 96 },
   phone: { fontSize: 14, color: "#7f8c8d", marginTop: 4 },
   center: { flex: 1, alignItems: "center" },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 16,
-    alignSelf: "center",
-    minWidth: 80,
-    maxWidth: 120,
-    marginRight: 26,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: "700",
-    textAlign: "center",
-    flexShrink: 1,
-  },
+  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 16, alignSelf: "center", minWidth: 80, maxWidth: 120, marginRight: 26, alignItems: "center", justifyContent: "center" },
+  statusText: { fontSize: 12, fontWeight: "700", textAlign: "center", flexShrink: 1 },
   right: { flex: 1, alignItems: "center" },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#1abc9c",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 4,
-  },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#1abc9c", justifyContent: "center", alignItems: "center", marginBottom: 4 },
   assignee: { fontSize: 12, color: "#34495e" },
+  city: { fontSize: 12, color: "#7f8c8d", marginTop: 2 },
+  syncingOverlay: {
+    position: "absolute",
+    top: 60,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 10,
+  },
+  syncingText: {
+  color: "#1abc9c",
+  marginTop: 10,
+  fontSize: 12,
+  fontWeight: "500",
+},
+
 });
+
+
+
+
+// import React, { useEffect, useState, useCallback } from "react";
+// import {
+//   View,
+//   Text,
+//   FlatList,
+//   TouchableOpacity,
+//   StyleSheet,
+//   TextInput,
+//   ActivityIndicator,
+// } from "react-native";
+// import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+// import FontAwesome from "react-native-vector-icons/FontAwesome";
+// import {
+//   initDB,
+//   getLeads,
+//   searchLeads,
+//   insertLead,
+//   getLoggedInUser,
+// } from "../db/database";
+
+// // ---------------- TYPES ----------------
+// export type Lead = {
+//   id: number;
+//   name: string;
+//   phone: string;
+//   status: string;
+//   assignee: string;
+//   source: string;
+//   city?: string;
+// };
+
+// type Props = {
+//   onSelectLead: (phone: string) => void;
+//   onOpenReport?: () => void;
+//   onOpenHistory?: () => void;
+// };
+
+// // ---------------- COMPONENT ----------------
+// export default function LeadsScreen({ onSelectLead }: Props) {
+//   const [leads, setLeads] = useState<Lead[]>([]);
+//   const [searchQuery, setSearchQuery] = useState<string>("");
+//   const [loading, setLoading] = useState<boolean>(true);
+
+//   // ---------------- MAP SOURCE ----------------
+//   const mapLeadSource = useCallback((source: string): "fb" | "jd" | "web" => {
+//     if (!source) return "web";
+//     source = source.toLowerCase();
+//     if (source.includes("facebook")) return "fb";
+//     if (source.includes("dealer") || source.includes("jd")) return "jd";
+//     return "web";
+//   }, []);
+
+//   // ---------------- FETCH API & STORE ----------------
+//   const fetchAndStoreLeads = useCallback(async () => {
+//     try {
+//       const user = await getLoggedInUser();
+//       if (!user?.entity_id) return;
+
+//       let offset = 0;
+//       const limit = 25;
+//       let hasMore = true;
+
+//       while (hasMore) {
+//         const url = `https://server103.multi-techno.com:8383/ords/ard_holdings/crm_app/get_leads_data?entity_id=${user.entity_id}&offset=${offset}&limit=${limit}`;
+//         const response = await fetch(url);
+//         if (!response.ok) throw new Error("Failed to fetch leads");
+
+//         const data = await response.json();
+//         const items = data.items || [];
+
+//         for (const lead of items) {
+//           await insertLead(
+//             lead.lead_id,               // API lead_id
+//             lead.name || "Unknown",
+//             lead.phone?.trim() || "N/A",
+//             lead.status || "NEW",
+//             lead.last_task_name || "-",
+//             mapLeadSource(lead.lead_source)
+//           );
+//         }
+
+//         hasMore = data.hasMore || false;
+//         offset += limit;
+//       }
+//     } catch (err) {
+//       console.error("Error fetching API leads:", err);
+//     }
+//   }, [mapLeadSource]);
+
+//   // ---------------- LOAD LEADS ----------------
+//   const loadLeads = useCallback(async () => {
+//     setLoading(true);
+//     try {
+//       await fetchAndStoreLeads();
+//       const savedLeads = await getLeads();
+//       setLeads(savedLeads);
+//     } catch (error) {
+//       console.error("Error loading leads:", error);
+//     } finally {
+//       setLoading(false);
+//     }
+//   }, [fetchAndStoreLeads]);
+
+//   useEffect(() => {
+//     (async () => {
+//       await initDB();
+//       await loadLeads();
+//     })();
+//   }, [loadLeads]);
+
+//   // ---------------- SEARCH HANDLER ----------------
+//   const handleSearch = async (text: string) => {
+//     setSearchQuery(text);
+//     if (text.trim() === "") {
+//       await loadLeads();
+//     } else {
+//       const results = await searchLeads(text);
+//       setLeads(results);
+//     }
+//   };
+
+//   // ---------------- RENDER ICONS & BADGES ----------------
+//   const renderSourceIcon = (source: Lead["source"]) => {
+//     switch (source) {
+//       case "fb":
+//         return <FontAwesome name="facebook" size={14} color="#1877F2" />;
+//       case "jd":
+//         return <MaterialIcons name="work" size={14} color="#2C3E50" />;
+//       case "web":
+//         return <MaterialIcons name="public" size={14} color="#27AE60" />;
+//       default:
+//         return <MaterialIcons name="help-outline" size={14} color="#7f8c8d" />;
+//     }
+//   };
+
+//   const renderStatusBadge = (status: Lead["status"]) => {
+//     let bgColor = "#ecf0f1";
+//     let textColor = "#7f8c8d";
+
+//     switch (status) {
+//       case "NEW": bgColor = "#1abc9c33"; textColor = "#1abc9c"; break;
+//       case "OLD": bgColor = "#e74c3c33"; textColor = "#e74c3c"; break;
+//       case "Not Interested": bgColor = "#e74c3c33"; textColor = "#e74c3c"; break;
+//       case "Interested": bgColor = "#2ecc7133"; textColor = "#2ecc71"; break;
+//       case "Follow Up": bgColor = "#f1c40f33"; textColor = "#f1c40f"; break;
+//       default: bgColor = "#bdc3c733"; textColor = "#7f8c8d";
+//     }
+
+//     return (
+//       <View style={[styles.statusBadge, { backgroundColor: bgColor }]}>
+//         <Text style={[styles.statusText, { color: textColor }]} numberOfLines={1} ellipsizeMode="tail">
+//           {status}
+//         </Text>
+//       </View>
+//     );
+//   };
+
+//   // ---------------- RENDER ----------------
+//   return (
+//     <View style={styles.container}>
+//       {/* SEARCH BAR */}
+//       <View style={styles.searchWrapper}>
+//         <TextInput
+//           placeholder="Search by name or phone..."
+//           placeholderTextColor="#7f8c8d"
+//           style={styles.searchBar}
+//           value={searchQuery}
+//           onChangeText={handleSearch}
+//         />
+//         <MaterialIcons name="search" size={22} color="#7f8c8d" style={styles.searchIcon} />
+//       </View>
+
+//       {loading ? (
+//         <View style={styles.loadingContainer}>
+//           <ActivityIndicator size="large" color="#1abc9c" />
+//         </View>
+//       ) : (
+//         <FlatList
+//           data={leads}
+//           keyExtractor={(item) => item.id.toString()}
+//           contentContainerStyle={styles.list}
+//           renderItem={({ item }) => (
+//             <TouchableOpacity style={styles.card} onPress={() => onSelectLead(item.phone)}>
+//               <View style={styles.left}>
+//                 <View style={styles.nameRow}>
+//                   <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
+//                   <View style={styles.separatorLine} />
+//                   {renderSourceIcon(item.source)}
+//                 </View>
+//                 <Text style={styles.phone}>{item.phone || "N/A"}</Text>
+//                 {item.city ? <Text style={styles.city}>{item.city}</Text> : null}
+//               </View>
+//               <View style={styles.center}>{renderStatusBadge(item.status)}</View>
+//               <View style={styles.right}>
+//                 <View style={styles.avatar}>
+//                   <MaterialIcons name="person" size={24} color="#fff" />
+//                 </View>
+//                 <Text style={styles.assignee}>{item.assignee || "-"}</Text>
+//               </View>
+//             </TouchableOpacity>
+//           )}
+//         />
+//       )}
+//     </View>
+//   );
+// }
+
+// // ---------------- STYLES ----------------
+// const styles = StyleSheet.create({
+//   container: { flex: 1, backgroundColor: "#eef5f4" },
+//   searchWrapper: { position: "relative", marginHorizontal: 12, marginVertical: 10 },
+//   searchBar: {
+//     backgroundColor: "#fff",
+//     borderRadius: 12,
+//     paddingHorizontal: 16,
+//     paddingVertical: 10,
+//     fontSize: 14,
+//     color: "#2c3e50",
+//     paddingRight: 40,
+//     shadowColor: "#000",
+//     shadowOpacity: 0.05,
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowRadius: 4,
+//     elevation: 2,
+//   },
+//   searchIcon: { position: "absolute", right: 18, top: 10 },
+//   list: { paddingHorizontal: 12, paddingBottom: 32 },
+//   card: {
+//     flexDirection: "row",
+//     backgroundColor: "#fff",
+//     paddingHorizontal: 16,
+//     paddingVertical: 6,
+//     borderRadius: 16,
+//     marginBottom: 8,
+//     shadowColor: "#000",
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.08,
+//     shadowRadius: 6,
+//     elevation: 3,
+//     alignItems: "center",
+//   },
+//   left: { flex: 3 },
+//   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+//   nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "nowrap" },
+//   separatorLine: { width: 1, height: 18, backgroundColor: "#7f8c8d", alignSelf: "center" },
+//   name: { fontSize: 16, fontWeight: "700", color: "#2c3e50", width: 96 },
+//   phone: { fontSize: 14, color: "#7f8c8d", marginTop: 4 },
+//   center: { flex: 1, alignItems: "center" },
+//   statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 16, alignSelf: "center", minWidth: 80, maxWidth: 120, marginRight: 26, alignItems: "center", justifyContent: "center" },
+//   statusText: { fontSize: 12, fontWeight: "700", textAlign: "center", flexShrink: 1 },
+//   right: { flex: 1, alignItems: "center" },
+//   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#1abc9c", justifyContent: "center", alignItems: "center", marginBottom: 4 },
+//   assignee: { fontSize: 12, color: "#34495e" },
+//   city: { fontSize: 12, color: "#7f8c8d", marginTop: 2 },
+// });
+
+
+
+
+// import React, { useEffect, useState } from "react";
+// import {
+//   View,
+//   Text,
+//   FlatList,
+//   TouchableOpacity,
+//   StyleSheet,
+//   TextInput,
+// } from "react-native";
+// import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+// import FontAwesome from "react-native-vector-icons/FontAwesome";
+// import { initDB, getLeads, insertLead, searchLeads } from "../db/database"; // SQLite helper functions
+
+// export type Lead = {
+//   id: number;
+//   name: string;
+//   phone: string;
+//   status: "NEW" | "OLD" | "Interested" | "Not Interested" | "Follow Up";
+//   assignee: string;
+//   source: "fb" | "jd" | "web";
+// };
+
+// type Props = {
+//   onSelectLead: (phone: string) => void;
+//   onOpenReport?: () => void;   // optional if you want
+//   onOpenHistory?: () => void;  // optional if you want
+// };
+
+
+// export default function LeadsScreen({ onSelectLead }: Props) {
+//   const [leads, setLeads] = useState<Lead[]>([]);
+//   const [searchQuery, setSearchQuery] = useState<string>("");
+
+//   useEffect(() => {
+//     (async () => {
+//       await initDB();
+//       await loadLeads();
+//     })();
+//   }, []);
+
+//   const loadLeads = async () => {
+//     try {
+//       let savedLeads = await getLeads();
+//       if (savedLeads.length === 0) {
+//         // Insert dummy leads if DB is empty
+//         const dummy: Lead[] = [
+//           { id: 0, name: "Ali", phone: "03001234567", status: "NEW", assignee: "Umer", source: "fb" },
+//           { id: 0, name: "Umer", phone: "03229199459", status: "NEW", assignee: "Umer", source: "web" },
+//           { id: 0, name: "Noman", phone: "03003334444", status: "NEW", assignee: "Ali", source: "fb" },
+//           { id: 0, name: "Ahmad", phone: "03005556666", status: "OLD", assignee: "Ali", source: "fb" },
+//         ];
+//         for (const lead of dummy) {
+//           await insertLead(lead.name, lead.phone, lead.status, lead.assignee, lead.source);
+//         }
+//         savedLeads = await getLeads();
+//       }
+//       setLeads(savedLeads);
+//     } catch (error) {
+//       console.error("Error loading leads from DB:", error);
+//     }
+//   };
+
+//   const handleSearch = async (text: string) => {
+//     setSearchQuery(text);
+//     if (text.trim() === "") {
+//       await loadLeads();
+//     } else {
+//       const results = await searchLeads(text);
+//       setLeads(results);
+//     }
+//   };
+
+//   const renderSourceIcon = (source: Lead["source"]) => {
+//     switch (source) {
+//       case "fb":
+//         return <FontAwesome name="facebook" size={14} color="#1877F2" />;
+//       case "jd":
+//         return <MaterialIcons name="work" size={14} color="#2C3E50" />;
+//       case "web":
+//         return <MaterialIcons name="public" size={14} color="#27AE60" />;
+//       default:
+//         return <MaterialIcons name="help-outline" size={14} color="#7f8c8d" />;
+//     }
+//   };
+
+//   const renderStatusBadge = (status: Lead["status"]) => {
+//     let bgColor = "#ecf0f1";
+//     let textColor = "#7f8c8d";
+
+//     switch (status) {
+//       case "NEW": bgColor = "#1abc9c33"; textColor = "#1abc9c"; break;
+//       case "OLD": bgColor = "#e74c3c33"; textColor = "#e74c3c"; break;
+//       case "Not Interested": bgColor = "#e74c3c33"; textColor = "#e74c3c"; break;
+//       case "Interested": bgColor = "#2ecc7133"; textColor = "#2ecc71"; break;
+//       case "Follow Up": bgColor = "#f1c40f33"; textColor = "#f1c40f"; break;
+//       default: bgColor = "#bdc3c733"; textColor = "#7f8c8d";
+//     }
+
+//     return (
+//       <View style={[styles.statusBadge, { backgroundColor: bgColor }]}>
+//         <Text style={[styles.statusText, { color: textColor }]} numberOfLines={1} ellipsizeMode="tail">
+//           {status}
+//         </Text>
+//       </View>
+//     );
+//   };
+
+//   return (
+//     <View style={styles.container}>
+//       {/* SEARCH BAR */}
+//       <View style={styles.searchWrapper}>
+//         <TextInput
+//           placeholder="Search by name or phone..."
+//           placeholderTextColor="#7f8c8d"
+//           style={styles.searchBar}
+//           value={searchQuery}
+//           onChangeText={handleSearch}
+//         />
+//         <MaterialIcons name="search" size={22} color="#7f8c8d" style={styles.searchIcon} />
+//       </View>
+
+//       {/* LIST */}
+//       <FlatList
+//         data={leads}
+//         keyExtractor={(item) => item.id.toString()}
+//         contentContainerStyle={styles.list}
+//         renderItem={({ item }) => (
+//           <TouchableOpacity
+//             style={styles.card}
+//             onPress={() => onSelectLead(item.phone)}
+//           >
+//             <View style={styles.left}>
+//               <View style={styles.nameRow}>
+//                 <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
+//                 {/* <Text style={styles.separator}>|</Text> */}
+//                  <View style={styles.separatorLine} />
+//                 <Text style={styles.source}>{renderSourceIcon(item.source)}</Text>
+//               </View>
+//               <Text style={styles.phone}>{item.phone}</Text>
+//             </View>
+//             <View style={styles.center}>{renderStatusBadge(item.status)}</View>
+//             <View style={styles.right}>
+//               <View style={styles.avatar}>
+//                 <MaterialIcons name="person" size={24} color="#fff" />
+//               </View>
+//               <Text style={styles.assignee}>{item.assignee}</Text>
+//             </View>
+//           </TouchableOpacity>
+//         )}
+//       />
+//     </View>
+//   );
+// }
+
+// const styles = StyleSheet.create({
+//   container: { flex: 1, backgroundColor: "#eef5f4" },
+//   searchWrapper: {
+//     position: "relative",
+//     marginHorizontal: 12,
+//     marginVertical: 10,
+//   },
+//   searchBar: {
+//     backgroundColor: "#fff",
+//     borderRadius: 12,
+//     paddingHorizontal: 16,
+//     paddingVertical: 10,
+//     fontSize: 14,
+//     color: "#2c3e50",
+//     paddingRight: 40,
+//     shadowColor: "#000",
+//     shadowOpacity: 0.05,
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowRadius: 4,
+//     elevation: 2,
+//   },
+//   searchIcon: {
+//     position: "absolute",
+//     right: 18,
+//     top: 10,
+//   },
+//   list: { paddingHorizontal: 12, paddingBottom: 32 },
+//   card: {
+//     flexDirection: "row",
+//     backgroundColor: "#fff",
+//     paddingHorizontal: 16,
+//     paddingVertical: 6,
+//     borderRadius: 16,
+//     marginBottom: 8,
+//     shadowColor: "#000",
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.08,
+//     shadowRadius: 6,
+//     elevation: 3,
+//     alignItems: "center",
+//   },
+//   left: { flex: 3 },
+//   nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "nowrap" },
+//   separator: { fontSize: 14, color: "#7f8c8d", marginHorizontal: 4 },
+//   separatorLine: {
+//   width: 1,             // thin vertical line
+//   height: 18,           // match text height
+//   backgroundColor: "#7f8c8d",
+//   alignSelf: "center",  // vertical align center
+// },
+//   name: { fontSize: 16, fontWeight: "700", color: "#2c3e50", width: 96, },
+//   source: { fontSize: 14 },
+//   phone: { fontSize: 14, color: "#7f8c8d", marginTop: 4 },
+//   center: { flex: 1, alignItems: "center" },
+//   statusBadge: {
+//     paddingHorizontal: 12,
+//     paddingVertical: 4,
+//     borderRadius: 16,
+//     alignSelf: "center",
+//     minWidth: 80,
+//     maxWidth: 120,
+//     marginRight: 26,
+//     alignItems: "center",
+//     justifyContent: "center",
+//   },
+//   statusText: {
+//     fontSize: 12,
+//     fontWeight: "700",
+//     textAlign: "center",
+//     flexShrink: 1,
+//   },
+//   right: { flex: 1, alignItems: "center" },
+//   avatar: {
+//     width: 40,
+//     height: 40,
+//     borderRadius: 20,
+//     backgroundColor: "#1abc9c",
+//     justifyContent: "center",
+//     alignItems: "center",
+//     marginBottom: 4,
+//   },
+//   assignee: { fontSize: 12, color: "#34495e" },
+// });
 
 
 

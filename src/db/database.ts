@@ -22,6 +22,19 @@ export const openDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
 export const initDB = async () => {
   const database = await openDatabase();
 
+
+  // Users table (Login)
+await database.executeSql(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_id TEXT,
+    user_name TEXT,
+    login_time TEXT
+  );
+`);
+
+// await database.executeSql("DROP TABLE IF EXISTS leads;");
+
   // Leads table
   await database.executeSql(`
     CREATE TABLE IF NOT EXISTS leads (
@@ -66,8 +79,53 @@ export interface CallLog {
 
 
 
+
+// ====================== Schemas =====================
+
+export const saveLoggedInUser = async (
+  entityId: string,
+  userName: string
+) => {
+  const database = await openDatabase();
+
+  const now = new Date().toISOString();
+
+  // Remove previous user (only 1 active login allowed)
+  await database.executeSql("DELETE FROM users;");
+
+  await database.executeSql(
+    "INSERT INTO users (entity_id, user_name, login_time) VALUES (?, ?, ?);",
+    [entityId, userName, now]
+  );
+};
+
+export const getLoggedInUser = async () => {
+  const database = await openDatabase();
+
+  const result = await database.executeSql(
+    "SELECT * FROM users LIMIT 1;"
+  );
+
+  const rows = result[0].rows;
+
+  if (rows.length > 0) {
+    return rows.item(0);
+  }
+
+  return null;
+};
+
+
+export const clearLoggedInUser = async () => {
+  const database = await openDatabase();
+  await database.executeSql("DELETE FROM users;");
+};
+
+
+
 /* ================= LEADS ================= */
 export const insertLead = async (
+  lead_id: number,       // use API lead_id
   name: string,
   phone: string,
   status: string = "NEW",
@@ -76,12 +134,18 @@ export const insertLead = async (
 ): Promise<number> => {
   const database = await openDatabase();
   const now = new Date().toISOString();
+
+  // Use phone as UNIQUE key for INSERT OR REPLACE
   const result = await database.executeSql(
-    "INSERT OR IGNORE INTO leads (name, phone, status, status_time, assignee, source) VALUES (?, ?, ?, ?, ?, ?);",
-    [name, phone, status, now, assignee, source]
+    `INSERT OR REPLACE INTO leads 
+      (id, name, phone, status, status_time, assignee, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [lead_id, name, phone, status, now, assignee, source]
   );
+
   return result[0].insertId;
 };
+
 
 
 export const getLeads = async (): Promise<any[]> => {
@@ -259,64 +323,124 @@ export const getLeadWithHistoryAndStatus = async (phone: string) => {
 };
 
 
+
+// Timeline Screen Funtion
 export const getAllLeadsWithHistoryAndStatus = async () => {
   await openDatabase();
   if (!db) throw new Error("DB not initialized");
 
-  // 1️⃣ Get all leads
-  const leadsResult = await db.executeSql(
-    "SELECT * FROM leads ORDER BY id DESC;"
-  );
+  const [leadsResult, historyResult] = await Promise.all([
+    db.executeSql("SELECT * FROM leads ORDER BY id DESC;"),
+    db.executeSql("SELECT * FROM history ORDER BY date DESC;"),
+  ]);
 
-  const finalData: any[] = [];
+  const leads = leadsResult[0].rows;
+  const historyRows = historyResult[0].rows;
 
-  for (let i = 0; i < leadsResult[0].rows.length; i++) {
-    const lead = leadsResult[0].rows.item(i);
+  const historyByPhone: Record<string, TimelineLog[]> = {};
 
-    // 2️⃣ Get history for this lead
-    const historyResult = await db.executeSql(
-      "SELECT * FROM history WHERE phone = ? ORDER BY date DESC;",
-      [lead.phone]
-    );
+  for (let i = 0; i < historyRows.length; i++) {
+    const row = historyRows.item(i);
+    const log: TimelineLog = {
+      id: row.id.toString(),
+      number: row.phone,
+      type: row.type,
+      duration: row.duration || 0,
+      time: row.date,
+      note: row.note || "",
+    };
+    if (!historyByPhone[row.phone]) historyByPhone[row.phone] = [];
+    historyByPhone[row.phone].push(log);
+  }
 
-    const history: TimelineLog[] = [];
+  const finalData = [];
+  for (let i = 0; i < leads.length; i++) {
+    const lead = leads.item(i);
+    const logs = historyByPhone[lead.phone] || [];
 
-    for (let j = 0; j < historyResult[0].rows.length; j++) {
-      const row = historyResult[0].rows.item(j);
-
-      history.push({
-        id: row.id.toString(),
-        number: row.phone,
-        type: row.type as TimelineLog["type"],
-        duration: row.duration || 0,
-        time: row.date,
-        note: row.note || "",
-      });
-    }
-
-    // 3️⃣ Add lead status as timeline entry (if not NEW)
     if (lead.status && lead.status !== "NEW") {
-      history.push({
+      logs.push({
         id: `status_${lead.id}`,
         number: lead.phone,
-        type: lead.status as TimelineLog["type"],
+        type: lead.status,
         duration: 0,
         time: lead.status_time || new Date().toISOString(),
         status: lead.status,
       });
     }
 
-    // 4️⃣ Sort timeline by date descending
-    history.sort(
-      (a, b) =>
-        new Date(b.time).getTime() - new Date(a.time).getTime()
-    );
+    logs.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
     finalData.push({
       lead,
-      history,
+      history: logs,
     });
   }
 
   return finalData;
 };
+
+
+
+
+// export const getAllLeadsWithHistoryAndStatus = async () => {
+//   await openDatabase();
+//   if (!db) throw new Error("DB not initialized");
+
+//   // 1️⃣ Get all leads
+//   const leadsResult = await db.executeSql(
+//     "SELECT * FROM leads ORDER BY id DESC;"
+//   );
+
+//   const finalData: any[] = [];
+
+//   for (let i = 0; i < leadsResult[0].rows.length; i++) {
+//     const lead = leadsResult[0].rows.item(i);
+
+//     // 2️⃣ Get history for this lead
+//     const historyResult = await db.executeSql(
+//       "SELECT * FROM history WHERE phone = ? ORDER BY date DESC;",
+//       [lead.phone]
+//     );
+
+//     const history: TimelineLog[] = [];
+
+//     for (let j = 0; j < historyResult[0].rows.length; j++) {
+//       const row = historyResult[0].rows.item(j);
+
+//       history.push({
+//         id: row.id.toString(),
+//         number: row.phone,
+//         type: row.type as TimelineLog["type"],
+//         duration: row.duration || 0,
+//         time: row.date,
+//         note: row.note || "",
+//       });
+//     }
+
+//     // 3️⃣ Add lead status as timeline entry (if not NEW)
+//     if (lead.status && lead.status !== "NEW") {
+//       history.push({
+//         id: `status_${lead.id}`,
+//         number: lead.phone,
+//         type: lead.status as TimelineLog["type"],
+//         duration: 0,
+//         time: lead.status_time || new Date().toISOString(),
+//         status: lead.status,
+//       });
+//     }
+
+//     // 4️⃣ Sort timeline by date descending
+//     history.sort(
+//       (a, b) =>
+//         new Date(b.time).getTime() - new Date(a.time).getTime()
+//     );
+
+//     finalData.push({
+//       lead,
+//       history,
+//     });
+//   }
+
+//   return finalData;
+// };

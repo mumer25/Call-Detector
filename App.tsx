@@ -6,9 +6,10 @@ import {
   StyleSheet,
   StatusBar,
   BackHandler,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { initDB, getLeads } from './src/db/database';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 import LeadsScreen from './src/screens/LeadsScreen';
 import DialerScreen, { Lead } from './src/screens/DialerScreen';
@@ -16,34 +17,66 @@ import HistoryScreen from './src/screens/HistoryScreen';
 import ReportsScreen from './src/screens/ReportsScreen';
 import TimelineScreen from './src/screens/TimelineScreen';
 import SplashScreen from './src/screens/SplashScreen';
-import LoginScreen from './src/screens/LoginScreen'; // new
+import LoginScreen from './src/screens/LoginScreen';
 
-import { startCallSyncListener  } from './src/utils/CallRecorder';
-import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import {
+  initDB,
+  getLeads,
+  getLoggedInUser,
+  clearLoggedInUser,
+} from './src/db/database';
+import { startCallSyncListener } from './src/utils/CallRecorder';
 
 type Tab = 'leads' | 'dialer' | 'history' | 'reports' | 'timeline';
 
 export default function App() {
-  const [isLoading, setIsLoading] = useState(true); // splash
-  const [loggedIn, setLoggedIn] = useState(false); // login status
+  const [isLoading, setIsLoading] = useState(true);
+  const [loggedIn, setLoggedIn] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('leads');
   const [selectedPhone, setSelectedPhone] = useState<string>('');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [resetTimeline, setResetTimeline] = useState(false);
-  const leadsTitle = 'Home';
+  const [username, setUsername] = useState<string>('');
 
-  const handleSplashFinish = useCallback(() => {
-    setIsLoading(false);
+  const handleSplashFinish = useCallback(() => setIsLoading(false), []);
+
+  // -------------------- INIT APP --------------------
+  useEffect(() => {
+    const initializeApp = async () => {
+      try {
+        await initDB();
+
+        // Check if user is already logged in
+        const user = await getLoggedInUser();
+        if (user) {
+          setLoggedIn(true);
+          setUsername(user.user_name || 'User'); // ⚡ correct column
+        }
+
+        // Start call listener
+        await startCallSyncListener();
+
+        // Load leads
+        const dbLeads = await getLeads();
+        setLeads(dbLeads);
+      } catch (e) {
+        console.warn('Initialization error:', e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeApp();
   }, []);
 
-
+  // -------------------- TIMELINE RESET --------------------
   useEffect(() => {
     if (activeTab === 'timeline') {
-      setResetTimeline(prev => !prev); // toggle to trigger effect
+      setResetTimeline(prev => !prev);
     }
   }, [activeTab]);
 
-  // Handle Android back button
+  // -------------------- ANDROID BACK BUTTON --------------------
   useEffect(() => {
     const backAction = () => {
       if (activeTab !== 'leads') {
@@ -54,82 +87,100 @@ export default function App() {
     };
     const backHandler = BackHandler.addEventListener(
       'hardwareBackPress',
-      backAction,
+      backAction
     );
     return () => backHandler.remove();
   }, [activeTab]);
 
-  // Load leads and start call listener
-  useEffect(() => {
-  const initializeApp = async () => {
-    try {
-      await initDB();
-      await startCallSyncListener();
-
-      const dbLeads = await getLeads();
-      setLeads(dbLeads);
-    } catch (e) {
-      console.warn('Initialization error:', e);
-    }
-  };
-
-  initializeApp();
-}, []);
-
-
+  // -------------------- LEAD SELECTION --------------------
   const handleSelectLead = (phone: string) => {
     const normalizedPhone = phone.replace(/\D/g, '');
     setSelectedPhone(normalizedPhone);
     setActiveTab('dialer');
   };
 
-  const getTitle = () => {
-    switch (activeTab) {
-      case 'dialer':
-        return 'Dialer';
-      case 'history':
-        return 'Call History';
-      case 'reports':
-        return 'Reports';
-      case 'timeline':
-        return 'Lead Timeline';
-      default:
-        return leadsTitle;
-    }
+  // -------------------- LOGOUT --------------------
+  const handleLogout = async () => {
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          await clearLoggedInUser();
+          setLoggedIn(false);
+          setUsername('');
+          setActiveTab('leads');
+        },
+      },
+    ]);
   };
 
   // -------------------- RENDER --------------------
-  if (isLoading) {
-    return <SplashScreen onFinish={handleSplashFinish} />;
-  }
+  if (isLoading) return <SplashScreen onFinish={handleSplashFinish} />;
 
   if (!loggedIn) {
-    return <LoginScreen onLoginSuccess={() => setLoggedIn(true)} />;
+    return (
+      <LoginScreen
+        onLoginSuccess={async () => {
+          setLoggedIn(true);
+
+          // Fetch username after login
+          const user = await getLoggedInUser();
+          setUsername(user?.user_name || 'User');
+        }}
+      />
+    );
   }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      {/* HEADER */}
-      <View style={styles.header}>
-        {activeTab !== 'leads' ? (
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => setActiveTab('leads')}
-          >
-            <MaterialIcons name="arrow-back-ios" size={20} color="#1abc9c" />
-            <Text style={styles.backText}>Back</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.backPlaceholder} />
-        )}
-
-        <Text style={styles.title}>{getTitle()}</Text>
-        <View style={styles.backPlaceholder} />
+{/* ---------------- HEADER ---------------- */}
+<View style={styles.header}>
+  {activeTab === 'leads' ? (
+    // 🔹 HOME HEADER (Username + Logout)
+    <>
+      <View style={styles.profileContainer}>
+        <View style={styles.profileIcon}>
+          <MaterialIcons name="person" size={28} color="#fff" />
+        </View>
+        <View style={styles.welcomeContainer}>
+          <Text style={styles.welcomeText}>Welcome</Text>
+          <Text style={styles.usernameText}>{username}</Text>
+        </View>
       </View>
 
-      {/* MAIN CONTENT */}
+      <TouchableOpacity onPress={handleLogout}>
+        <MaterialIcons name="logout" size={28} color="#e74c3c" />
+      </TouchableOpacity>
+    </>
+  ) : (
+    // 🔹 OTHER SCREENS HEADER (Back + Title)
+    <>
+      <TouchableOpacity
+        style={styles.backBtn}
+        onPress={() => setActiveTab('leads')}
+      >
+        <MaterialIcons name="arrow-back-ios" size={20} color="#1abc9c" />
+        <Text style={styles.backText}>Back</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.title}>
+        {activeTab === 'dialer' && 'Dialer'}
+        {activeTab === 'history' && 'Call History'}
+        {activeTab === 'reports' && 'Reports'}
+        {activeTab === 'timeline' && 'Lead Timeline'}
+      </Text>
+
+      <View style={styles.headerRightPlaceholder} /> 
+    </>
+  )}
+</View>
+
+
+      {/* ---------------- MAIN CONTENT ---------------- */}
       <View style={styles.content}>
         {activeTab === 'leads' && (
           <LeadsScreen
@@ -138,7 +189,6 @@ export default function App() {
             onOpenHistory={() => setActiveTab('history')}
           />
         )}
-
         {activeTab === 'dialer' && (
           <DialerScreen
             phone={selectedPhone}
@@ -147,26 +197,23 @@ export default function App() {
             onOpenTimeline={() => setActiveTab('timeline')}
           />
         )}
-
         {activeTab === 'timeline' && (
           <TimelineScreen
             selectedLeadPhone={selectedPhone}
             resetTimeline={resetTimeline}
           />
         )}
-
         {activeTab === 'history' && <HistoryScreen />}
         {activeTab === 'reports' && <ReportsScreen />}
       </View>
 
-      {/* BOTTOM TABS */}
-      {/* <BottomTabs activeTab={activeTab} setActiveTab={setActiveTab} /> */}
+      {/* ---------------- BOTTOM TABS ---------------- */}
       <BottomTabs
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onTimelineTabPress={() => {
-          setSelectedPhone(''); // clear selected phone
-          setResetTimeline(prev => !prev); // toggle to reset TimelineScreen
+          setSelectedPhone('');
+          setResetTimeline(prev => !prev);
         }}
       />
     </SafeAreaView>
@@ -212,10 +259,7 @@ const BottomTabs: React.FC<BottomTabProps> = ({
         color={activeTab === 'history' ? '#1abc9c' : '#7f8c8d'}
       />
       <Text
-        style={[
-          styles.tabText,
-          activeTab === 'history' && styles.tabTextActive,
-        ]}
+        style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}
       >
         History
       </Text>
@@ -231,10 +275,7 @@ const BottomTabs: React.FC<BottomTabProps> = ({
         color={activeTab === 'reports' ? '#1abc9c' : '#7f8c8d'}
       />
       <Text
-        style={[
-          styles.tabText,
-          activeTab === 'reports' && styles.tabTextActive,
-        ]}
+        style={[styles.tabText, activeTab === 'reports' && styles.tabTextActive]}
       >
         Reports
       </Text>
@@ -244,7 +285,7 @@ const BottomTabs: React.FC<BottomTabProps> = ({
       style={[styles.tabButton, activeTab === 'timeline' && styles.tabActive]}
       onPress={() => {
         setActiveTab('timeline');
-        onTimelineTabPress(); // call the handler to reset Timeline
+        onTimelineTabPress();
       }}
     >
       <MaterialIcons
@@ -253,10 +294,7 @@ const BottomTabs: React.FC<BottomTabProps> = ({
         color={activeTab === 'timeline' ? '#1abc9c' : '#7f8c8d'}
       />
       <Text
-        style={[
-          styles.tabText,
-          activeTab === 'timeline' && styles.tabTextActive,
-        ]}
+        style={[styles.tabText, activeTab === 'timeline' && styles.tabTextActive]}
       >
         Timeline
       </Text>
@@ -268,12 +306,12 @@ const BottomTabs: React.FC<BottomTabProps> = ({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f0f4f7' },
   header: {
-    height: 64,
-    backgroundColor: '#ffffff',
+    height: 80,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
     shadowColor: '#000',
@@ -282,24 +320,25 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  backBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#e0f7f4',
-    gap: 4,
-  },
-  backText: { fontSize: 16, fontWeight: '600', color: '#1abc9c' },
-  backPlaceholder: { width: 68 },
-  title: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#2c3e50',
-  },
+ profileContainer: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  flex: 1,
+},
+profileIcon: {
+  width: 46,
+  height: 46,
+  borderRadius: 25,
+  backgroundColor: '#1abc9c',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 12,
+},
+welcomeContainer: {
+  flex: 1,
+},
+welcomeText: { fontSize: 14, color: '#7f8c8d' },
+usernameText: { fontSize: 16, fontWeight: '700', color: '#2c3e50' },
   content: { flex: 1 },
   bottomTabs: {
     height: 60,
@@ -315,6 +354,31 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
+  backBtn: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+  borderRadius: 8,
+  backgroundColor: '#e0f7f4',
+  gap: 4,
+},
+backText: {
+  fontSize: 16,
+  fontWeight: '600',
+  color: '#1abc9c',
+},
+title: {
+  flex: 1,
+  textAlign: 'center',
+  fontSize: 20,
+  fontWeight: '700',
+  color: '#2c3e50',
+},
+headerRightPlaceholder: {
+  width: 60,
+},
+
   tabButton: {
     flex: 1,
     justifyContent: 'center',
@@ -325,6 +389,337 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 12, color: '#7f8c8d', marginTop: 2 },
   tabTextActive: { color: '#1abc9c', fontWeight: '700' },
 });
+
+
+
+
+// import React, { useEffect, useState, useCallback } from 'react';
+// import {
+//   View,
+//   Text,
+//   TouchableOpacity,
+//   StyleSheet,
+//   StatusBar,
+//   BackHandler,
+// } from 'react-native';
+// import { SafeAreaView } from 'react-native-safe-area-context';
+// import { initDB, getLeads } from './src/db/database';
+
+// import LeadsScreen from './src/screens/LeadsScreen';
+// import DialerScreen, { Lead } from './src/screens/DialerScreen';
+// import HistoryScreen from './src/screens/HistoryScreen';
+// import ReportsScreen from './src/screens/ReportsScreen';
+// import TimelineScreen from './src/screens/TimelineScreen';
+// import SplashScreen from './src/screens/SplashScreen';
+// import LoginScreen from './src/screens/LoginScreen'; // new
+
+// import { startCallSyncListener  } from './src/utils/CallRecorder';
+// import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+
+// type Tab = 'leads' | 'dialer' | 'history' | 'reports' | 'timeline';
+
+// export default function App() {
+//   const [isLoading, setIsLoading] = useState(true); // splash
+//   const [loggedIn, setLoggedIn] = useState(false); // login status
+//   const [activeTab, setActiveTab] = useState<Tab>('leads');
+//   const [selectedPhone, setSelectedPhone] = useState<string>('');
+//   const [leads, setLeads] = useState<Lead[]>([]);
+//   const [resetTimeline, setResetTimeline] = useState(false);
+//   const leadsTitle = 'Home';
+
+//   const handleSplashFinish = useCallback(() => {
+//     setIsLoading(false);
+//   }, []);
+
+
+//   useEffect(() => {
+//     if (activeTab === 'timeline') {
+//       setResetTimeline(prev => !prev); // toggle to trigger effect
+//     }
+//   }, [activeTab]);
+
+//   // Handle Android back button
+//   useEffect(() => {
+//     const backAction = () => {
+//       if (activeTab !== 'leads') {
+//         setActiveTab('leads');
+//         return true;
+//       }
+//       return false;
+//     };
+//     const backHandler = BackHandler.addEventListener(
+//       'hardwareBackPress',
+//       backAction,
+//     );
+//     return () => backHandler.remove();
+//   }, [activeTab]);
+
+//   // Load leads and start call listener
+//   useEffect(() => {
+//   const initializeApp = async () => {
+//     try {
+//       await initDB();
+//       await startCallSyncListener();
+
+//       const dbLeads = await getLeads();
+//       setLeads(dbLeads);
+//     } catch (e) {
+//       console.warn('Initialization error:', e);
+//     }
+//   };
+
+//   initializeApp();
+// }, []);
+
+
+//   const handleSelectLead = (phone: string) => {
+//     const normalizedPhone = phone.replace(/\D/g, '');
+//     setSelectedPhone(normalizedPhone);
+//     setActiveTab('dialer');
+//   };
+
+//   const getTitle = () => {
+//     switch (activeTab) {
+//       case 'dialer':
+//         return 'Dialer';
+//       case 'history':
+//         return 'Call History';
+//       case 'reports':
+//         return 'Reports';
+//       case 'timeline':
+//         return 'Lead Timeline';
+//       default:
+//         return leadsTitle;
+//     }
+//   };
+
+//   // -------------------- RENDER --------------------
+//   if (isLoading) {
+//     return <SplashScreen onFinish={handleSplashFinish} />;
+//   }
+
+//   if (!loggedIn) {
+//     return <LoginScreen onLoginSuccess={() => setLoggedIn(true)} />;
+//   }
+
+//   return (
+//     <SafeAreaView style={styles.container}>
+//       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+//       {/* HEADER */}
+//       <View style={styles.header}>
+//         {activeTab !== 'leads' ? (
+//           <TouchableOpacity
+//             style={styles.backBtn}
+//             onPress={() => setActiveTab('leads')}
+//           >
+//             <MaterialIcons name="arrow-back-ios" size={20} color="#1abc9c" />
+//             <Text style={styles.backText}>Back</Text>
+//           </TouchableOpacity>
+//         ) : (
+//           <View style={styles.backPlaceholder} />
+//         )}
+
+//         <Text style={styles.title}>{getTitle()}</Text>
+//         <View style={styles.backPlaceholder} />
+//       </View>
+
+//       {/* MAIN CONTENT */}
+//       <View style={styles.content}>
+//         {activeTab === 'leads' && (
+//           <LeadsScreen
+//             onSelectLead={handleSelectLead}
+//             onOpenReport={() => setActiveTab('reports')}
+//             onOpenHistory={() => setActiveTab('history')}
+//           />
+//         )}
+
+//         {activeTab === 'dialer' && (
+//           <DialerScreen
+//             phone={selectedPhone}
+//             leads={leads}
+//             onSelectLead={handleSelectLead}
+//             onOpenTimeline={() => setActiveTab('timeline')}
+//           />
+//         )}
+
+//         {activeTab === 'timeline' && (
+//           <TimelineScreen
+//             selectedLeadPhone={selectedPhone}
+//             resetTimeline={resetTimeline}
+//           />
+//         )}
+
+//         {activeTab === 'history' && <HistoryScreen />}
+//         {activeTab === 'reports' && <ReportsScreen />}
+//       </View>
+
+//       {/* BOTTOM TABS */}
+//       {/* <BottomTabs activeTab={activeTab} setActiveTab={setActiveTab} /> */}
+//       <BottomTabs
+//         activeTab={activeTab}
+//         setActiveTab={setActiveTab}
+//         onTimelineTabPress={() => {
+//           setSelectedPhone(''); // clear selected phone
+//           setResetTimeline(prev => !prev); // toggle to reset TimelineScreen
+//         }}
+//       />
+//     </SafeAreaView>
+//   );
+// }
+
+// // -------------------- BOTTOM TABS --------------------
+// type BottomTabProps = {
+//   activeTab: Tab;
+//   setActiveTab: (tab: Tab) => void;
+//   onTimelineTabPress: () => void;
+// };
+
+// const BottomTabs: React.FC<BottomTabProps> = ({
+//   activeTab,
+//   setActiveTab,
+//   onTimelineTabPress,
+// }) => (
+//   <View style={styles.bottomTabs}>
+//     <TouchableOpacity
+//       style={[styles.tabButton, activeTab === 'leads' && styles.tabActive]}
+//       onPress={() => setActiveTab('leads')}
+//     >
+//       <MaterialIcons
+//         name="home"
+//         size={24}
+//         color={activeTab === 'leads' ? '#1abc9c' : '#7f8c8d'}
+//       />
+//       <Text
+//         style={[styles.tabText, activeTab === 'leads' && styles.tabTextActive]}
+//       >
+//         Home
+//       </Text>
+//     </TouchableOpacity>
+
+//     <TouchableOpacity
+//       style={[styles.tabButton, activeTab === 'history' && styles.tabActive]}
+//       onPress={() => setActiveTab('history')}
+//     >
+//       <MaterialIcons
+//         name="history"
+//         size={24}
+//         color={activeTab === 'history' ? '#1abc9c' : '#7f8c8d'}
+//       />
+//       <Text
+//         style={[
+//           styles.tabText,
+//           activeTab === 'history' && styles.tabTextActive,
+//         ]}
+//       >
+//         History
+//       </Text>
+//     </TouchableOpacity>
+
+//     <TouchableOpacity
+//       style={[styles.tabButton, activeTab === 'reports' && styles.tabActive]}
+//       onPress={() => setActiveTab('reports')}
+//     >
+//       <MaterialIcons
+//         name="bar-chart"
+//         size={24}
+//         color={activeTab === 'reports' ? '#1abc9c' : '#7f8c8d'}
+//       />
+//       <Text
+//         style={[
+//           styles.tabText,
+//           activeTab === 'reports' && styles.tabTextActive,
+//         ]}
+//       >
+//         Reports
+//       </Text>
+//     </TouchableOpacity>
+
+//     <TouchableOpacity
+//       style={[styles.tabButton, activeTab === 'timeline' && styles.tabActive]}
+//       onPress={() => {
+//         setActiveTab('timeline');
+//         onTimelineTabPress(); // call the handler to reset Timeline
+//       }}
+//     >
+//       <MaterialIcons
+//         name="timeline"
+//         size={24}
+//         color={activeTab === 'timeline' ? '#1abc9c' : '#7f8c8d'}
+//       />
+//       <Text
+//         style={[
+//           styles.tabText,
+//           activeTab === 'timeline' && styles.tabTextActive,
+//         ]}
+//       >
+//         Timeline
+//       </Text>
+//     </TouchableOpacity>
+//   </View>
+// );
+
+// // -------------------- STYLES --------------------
+// const styles = StyleSheet.create({
+//   container: { flex: 1, backgroundColor: '#f0f4f7' },
+//   header: {
+//     height: 64,
+//     backgroundColor: '#ffffff',
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     justifyContent: 'space-between',
+//     paddingHorizontal: 16,
+//     borderBottomWidth: 1,
+//     borderBottomColor: '#e0e0e0',
+//     shadowColor: '#000',
+//     shadowOpacity: 0.05,
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowRadius: 4,
+//     elevation: 2,
+//   },
+//   backBtn: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     paddingVertical: 8,
+//     paddingHorizontal: 12,
+//     borderRadius: 8,
+//     backgroundColor: '#e0f7f4',
+//     gap: 4,
+//   },
+//   backText: { fontSize: 16, fontWeight: '600', color: '#1abc9c' },
+//   backPlaceholder: { width: 68 },
+//   title: {
+//     flex: 1,
+//     textAlign: 'center',
+//     fontSize: 20,
+//     fontWeight: '700',
+//     color: '#2c3e50',
+//   },
+//   content: { flex: 1 },
+//   bottomTabs: {
+//     height: 60,
+//     flexDirection: 'row',
+//     justifyContent: 'space-around',
+//     alignItems: 'center',
+//     backgroundColor: '#fff',
+//     borderTopWidth: 1,
+//     borderTopColor: '#e0e0e0',
+//     shadowColor: '#000',
+//     shadowOpacity: 0.05,
+//     shadowOffset: { width: 0, height: -2 },
+//     shadowRadius: 4,
+//     elevation: 5,
+//   },
+//   tabButton: {
+//     flex: 1,
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//     paddingVertical: 8,
+//   },
+//   tabActive: { backgroundColor: '#e0f7f4', borderRadius: 8 },
+//   tabText: { fontSize: 12, color: '#7f8c8d', marginTop: 2 },
+//   tabTextActive: { color: '#1abc9c', fontWeight: '700' },
+// });
 
 // import React, { useEffect, useState, useCallback  } from "react";
 // import { View, Text, TouchableOpacity, StyleSheet, StatusBar, BackHandler } from "react-native";
