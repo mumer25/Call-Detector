@@ -199,10 +199,6 @@ export default function App() {
             leads={leads}
             onSelectLead={handleSelectLead}
             onOpenTimeline={() => setActiveTab('timeline')}
-            onRefreshLeads={async () => {
-      const dbLeads = await getLeads();
-      setLeads(dbLeads);
-    }}
           />
         )}
         {activeTab === 'timeline' && (

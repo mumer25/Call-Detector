@@ -142,19 +142,11 @@ export default function LeadsScreen({ onSelectLead }: Props) {
   useEffect(() => {
   const timeout = setTimeout(() => {
     refreshLeads(); // runs once after 10 sec
-  }, 5000); // 10000ms = 10 seconds
+  }, 1000); // 10000ms = 10 seconds
 
   // Cleanup in case the screen unmounts before 10 sec
   return () => clearTimeout(timeout);
 }, [refreshLeads]);
-
-  // useEffect(() => {
-  //   const interval = setInterval(() => {
-  //     refreshLeads();
-  //   }, 20000); // refresh every 30 seconds
-
-  //   return () => clearInterval(interval);
-  // }, [refreshLeads]);
 
   // ---------------- SEARCH HANDLER ----------------
   const handleSearch = async (text: string) => {

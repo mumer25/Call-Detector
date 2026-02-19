@@ -119,6 +119,8 @@ export const getLoggedInUser = async () => {
 export const clearLoggedInUser = async () => {
   const database = await openDatabase();
   await database.executeSql("DELETE FROM users;");
+  await database.executeSql("DELETE FROM leads;");
+  await database.executeSql("DELETE FROM history;");
 };
 
 
