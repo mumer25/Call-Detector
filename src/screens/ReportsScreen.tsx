@@ -177,15 +177,26 @@ export default function ReportsScreen() {
       )}
 
       {/* Search */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search leads..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        <MaterialIcons name="search" size={20} color="#7f8c8d" />
-      </View>
+   {/* Search */}
+<View style={styles.searchContainer}>
+  <TextInput
+    style={styles.searchInput}
+    placeholder="Search leads..."
+    value={searchQuery}
+    onChangeText={setSearchQuery}
+  />
+
+  {searchQuery.length === 0 ? (
+    // Show search icon when input is empty
+    <MaterialIcons name="search" size={20} color="#7f8c8d" />
+  ) : (
+    // Show close icon when text is entered
+    <TouchableOpacity onPress={() => setSearchQuery("")}>
+      <MaterialIcons name="close" size={20} color="#7f8c8d" />
+    </TouchableOpacity>
+  )}
+</View>
+
 
       {/* Date Picker */}
       {showPicker && (

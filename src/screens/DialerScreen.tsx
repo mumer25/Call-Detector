@@ -46,10 +46,11 @@ type Props = {
   leads: Lead[];
   onSelectLead: (phone: string) => void;
   onOpenTimeline?: () => void;
+  onRefreshLeads?: () => void;
 };
 
 /* ================= SCREEN ================= */
-export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimeline }: Props) {
+export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimeline, onRefreshLeads, }: Props) {
   const [note, setNote] = useState("");
   const [status, setStatus] = useState<LeadStatus>("New");
   const [leadName, setLeadName] = useState<string>("");
@@ -126,6 +127,21 @@ export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimelin
     loadLead();
     loadLeadLogs();
   }, [loadLead, loadLeadLogs]);
+
+  useEffect(() => {
+  const timer = setTimeout(async () => {
+    if (onRefreshLeads) {
+      await onRefreshLeads();
+    }
+    // reload current lead info after DB refresh
+    loadLead();
+    loadLeadLogs();
+  }, 1500);
+
+  return () => clearTimeout(timer);
+}, [onRefreshLeads, loadLead, loadLeadLogs]);
+
+  
 
   /* ================= HELPERS ================= */
   const getWhatsAppNumber = () => {
@@ -314,6 +330,11 @@ const goToPreviousLead = () => {
     return `${mins}m ${secs}s`;
   };
 
+
+  const isPrevDisabled = leads.length === 0 || leads.findIndex(l => normalize(l.phone) === normalize(phone)) === -1;
+const isNextDisabled = leads.length === 0 || leads.findIndex(l => normalize(l.phone) === normalize(phone)) === -1;
+
+
   /* ================= UI ================= */
   return (
     <View style={styles.mainContainer}>
@@ -404,7 +425,14 @@ const goToPreviousLead = () => {
       {/* FIXED PREVIOUS/NEXT BUTTONS */}
      <View style={styles.fixedBottom}>
   {/* Previous Lead */}
-<TouchableOpacity style={styles.prevNextButton} onPress={goToPreviousLead}>
+  <TouchableOpacity
+  style={[
+    styles.prevNextButton,
+    isPrevDisabled ? styles.disabledButton : null
+  ]}
+  onPress={goToPreviousLead}
+  disabled={isPrevDisabled} // actually disables the button
+>
   <View style={styles.iconContainer}>
     <Ionicons name="chevron-back" size={24} color="#fff" />
   </View>
@@ -412,6 +440,14 @@ const goToPreviousLead = () => {
     <Text style={styles.prevNextText}>Previous Lead</Text>
   </View>
 </TouchableOpacity>
+{/* <TouchableOpacity style={styles.prevNextButton} onPress={goToPreviousLead} disabled={leads.length === 0}>
+  <View style={styles.iconContainer}>
+    <Ionicons name="chevron-back" size={24} color="#fff" />
+  </View>
+  <View style={styles.textContainer}>
+    <Text style={styles.prevNextText}>Previous Lead</Text>
+  </View>
+</TouchableOpacity> */}
 
   {/* Timeline */}
   <TouchableOpacity
@@ -422,7 +458,14 @@ const goToPreviousLead = () => {
   </TouchableOpacity>
 
   {/* Next Lead */}
- <TouchableOpacity style={styles.prevNextButton} onPress={goToNextLead}>
+  <TouchableOpacity
+  style={[
+    styles.prevNextButton,
+    isNextDisabled ? styles.disabledButton : null
+  ]}
+  onPress={goToNextLead}
+  disabled={isNextDisabled}
+>
   <View style={styles.textContainer}>
     <Text style={styles.prevNextText}>Next Lead</Text>
   </View>
@@ -430,6 +473,14 @@ const goToPreviousLead = () => {
     <Ionicons name="chevron-forward" size={24} color="#fff" />
   </View>
 </TouchableOpacity>
+ {/* <TouchableOpacity style={styles.prevNextButton} onPress={goToNextLead} disabled={leads.length === 0}>
+  <View style={styles.textContainer}>
+    <Text style={styles.prevNextText}>Next Lead</Text>
+  </View>
+  <View style={styles.iconContainer}>
+    <Ionicons name="chevron-forward" size={24} color="#fff" />
+  </View>
+</TouchableOpacity> */}
 </View>
 
 
@@ -480,7 +531,36 @@ const goToPreviousLead = () => {
       {showFollowUpModal && (
         <Modal transparent animationType="fade">
           <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
+             <DateTimePicker
+                value={followUpDate || new Date()}
+                mode={followUpMode}
+                display="default"
+                onChange={(event: DateTimePickerEvent, selected?: Date) => {
+                  if (event.type === "set" && selected) {
+                    const updated = new Date(followUpDate || new Date());
+                    if (followUpMode === "date") {
+                      updated.setFullYear(selected.getFullYear());
+                      updated.setMonth(selected.getMonth());
+                      updated.setDate(selected.getDate());
+                      setFollowUpDate(updated);
+                      setFollowUpMode("time");
+                    } else {
+                      updated.setHours(selected.getHours());
+                      updated.setMinutes(selected.getMinutes());
+                      setFollowUpDate(updated);
+                      setPendingStatus(`Follow Up: ${updated.toLocaleString()}`);
+                      setShowTick(true);
+                      setFollowUpMode("date");
+                      setShowFollowUpModal(false);
+                    }
+                  } else if (event.type === "dismissed") {
+                    setShowFollowUpModal(false);
+                    setFollowUpMode("date");
+                  }
+                }}
+                style={styles.dateTimePicker}
+              />
+            {/* <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>Select Follow-Up Date & Time</Text>
 
               <DateTimePicker
@@ -512,7 +592,7 @@ const goToPreviousLead = () => {
                 }}
                 style={styles.dateTimePicker}
               />
-            </View>
+            </View> */}
           </View>
         </Modal>
       )}
@@ -604,6 +684,9 @@ const styles = StyleSheet.create({
   flexDirection: "row",
   justifyContent: "space-between",
   alignItems: "center",
+},
+disabledButton: {
+  backgroundColor: "#95a5a6", // gray color for disabled
 },
 
 // Make both buttons same width
