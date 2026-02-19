@@ -38,7 +38,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
 
     const timer = setTimeout(() => {
       onFinish();
-    }, 4000); // splash stays longer
+    }, 5000); // splash stays longer
 
     return () => clearTimeout(timer);
   }, [onFinish, scale, opacity, slideBars]);

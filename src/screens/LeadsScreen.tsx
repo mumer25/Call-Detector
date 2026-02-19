@@ -41,6 +41,9 @@ export default function LeadsScreen({ onSelectLead }: Props) {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
+  const [hasLocalLeads, setHasLocalLeads] = useState<boolean>(false);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+
 
   // ---------------- MAP SOURCE ----------------
   const mapLeadSource = useCallback((source: string): "fb" | "jd" | "web" => {
@@ -52,71 +55,96 @@ export default function LeadsScreen({ onSelectLead }: Props) {
   }, []);
 
   // ---------------- FETCH API & STORE ----------------
-  const fetchAndUpdateLeads = useCallback(async () => {
-    try {
-      setSyncing(true);
-      const user = await getLoggedInUser();
-      if (!user?.entity_id) return;
+const fetchAndUpdateLeads = useCallback(async () => {
+  try {
+    setSyncing(true);
+    const user = await getLoggedInUser();
+    if (!user?.entity_id) return;
 
-      let offset = 0;
-      const limit = 25;
-      let hasMore = true;
+    let offset = 0;
+    const limit = 25;
+    let hasMore = true;
 
-      while (hasMore) {
-        const url = `https://server103.multi-techno.com:8383/ords/ard_holdings/crm_app/get_leads_data?entity_id=${user.entity_id}&offset=${offset}&limit=${limit}`;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("Failed to fetch leads");
+    while (hasMore) {
+      const url = `https://server103.multi-techno.com:8383/ords/ard_holdings/crm_app/get_leads_data?entity_id=${user.entity_id}&offset=${offset}&limit=${limit}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Failed to fetch leads");
 
-        const data = await response.json();
-        const items = data.items || [];
+      const data = await response.json();
+      const items = data.items || [];
 
-        for (const lead of items) {
-          await insertLead(
-            lead.lead_id,
-            lead.name || "Unknown",
-            lead.phone?.trim() || "N/A",
-            // lead.status || "NEW",
-            lead.last_task_name || "-",
-            lead.assignee || "-",
-            mapLeadSource(lead.lead_source)
-          );
-        }
-
-        hasMore = data.hasMore || false;
-        offset += limit;
+      for (const lead of items) {
+        await insertLead(
+          lead.lead_id,
+          lead.name || "Unknown",
+          lead.phone?.trim() || "N/A",
+          lead.last_task_name || "-",
+          lead.assignee || "-",
+          mapLeadSource(lead.lead_source)
+        );
       }
 
-      const updatedLeads = await getLeads();
-      setLeads(updatedLeads);
-    } catch (err) {
-      console.error("Error syncing leads:", err);
-    } finally {
-      setSyncing(false);
+      hasMore = data.hasMore || false;
+      offset += limit;
     }
-  }, [mapLeadSource]);
+
+    // Reload from DB and update state
+    const updatedLeads = await getLeads();
+    setLeads(updatedLeads);
+    setHasLocalLeads(updatedLeads.length > 0); // DB now has leads
+  } catch (err) {
+    console.error("Error syncing leads:", err);
+  } finally {
+    setLoading(false); // stop initial loader
+    setSyncing(false);
+  }
+}, [mapLeadSource]);
+
 
   // ---------------- LOAD FROM DB ----------------
-  const loadLeadsFromDB = useCallback(async () => {
-    try {
-      const savedLeads = await getLeads();
-      setLeads(savedLeads);
-    } catch (err) {
-      console.error("Error loading leads from DB:", err);
-    }
-  }, []);
+const loadLeadsFromDB = useCallback(async () => {
+  try {
+    const savedLeads = await getLeads();
+    setLeads(savedLeads);
+    setHasLocalLeads(savedLeads.length > 0); // true if DB has leads
+  } catch (err) {
+    console.error("Error loading leads from DB:", err);
+  }
+}, []);
+
+
+const refreshLeads = useCallback(async () => {
+  setRefreshing(true);
+  await loadLeadsFromDB(); // load latest from DB
+  setRefreshing(false);
+}, [loadLeadsFromDB]);
+
+
+useEffect(() => {
+  const interval = setInterval(() => {
+    refreshLeads();
+  }, 30000); // refresh every 30 seconds
+
+  return () => clearInterval(interval); // cleanup
+}, [refreshLeads]);
+
 
   // ---------------- INITIAL LOAD ----------------
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      await initDB();
-      await loadLeadsFromDB();
-      setLoading(false);
+  (async () => {
+    await initDB();
 
-      // Fetch latest leads in background
-      fetchAndUpdateLeads();
-    })();
-  }, [loadLeadsFromDB, fetchAndUpdateLeads]);
+    // Load from DB first
+    await loadLeadsFromDB();
+
+    // Show loader only if no local leads
+    if (!hasLocalLeads) setLoading(true);
+
+    // Fetch new leads in background
+    await fetchAndUpdateLeads();
+  })();
+}, [loadLeadsFromDB, fetchAndUpdateLeads, hasLocalLeads]);
+
 
   // ---------------- SEARCH HANDLER ----------------
   const handleSearch = async (text: string) => {
@@ -148,11 +176,11 @@ export default function LeadsScreen({ onSelectLead }: Props) {
     let textColor = "#7f8c8d";
 
     switch (status) {
-      case "NEW":
+      case "New Lead":
         bgColor = "#1abc9c33";
         textColor = "#1abc9c";
         break;
-      case "OLD":
+      case "OLD Lead":
         bgColor = "#e74c3c33";
         textColor = "#e74c3c";
         break;
@@ -169,8 +197,8 @@ export default function LeadsScreen({ onSelectLead }: Props) {
         textColor = "#f1c40f";
         break;
       default:
-        bgColor = "#bdc3c733";
-        textColor = "#7f8c8d";
+        bgColor = "#1abc9c33";
+        textColor = "#1abc9c";
     }
 
     return (
@@ -197,9 +225,10 @@ export default function LeadsScreen({ onSelectLead }: Props) {
         <MaterialIcons name="search" size={22} color="#7f8c8d" style={styles.searchIcon} />
       </View>
 
-      {loading ? (
+      {loading && !hasLocalLeads ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#1abc9c" />
+          <Text style={styles.syncingText}>Loading leads...</Text>
         </View>
       ) : (
         <>
@@ -233,6 +262,8 @@ export default function LeadsScreen({ onSelectLead }: Props) {
                 </View>
               </TouchableOpacity>
             )}
+             refreshing={refreshing}
+             onRefresh={refreshLeads} 
           />
         </>
       )}

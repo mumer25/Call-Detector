@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Platform,
   TextInput,
+  ActivityIndicator,
 } from "react-native";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
@@ -28,9 +29,13 @@ export default function ReportsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [showMonthSelector, setShowMonthSelector] = useState(false);
 
+  const [loading, setLoading] = useState<boolean>(true);
+
+
   useEffect(() => {
     const loadData = async () => {
       try {
+        setLoading(true);
         const dbLeads = await getLeads();
         const dbLogs = await getHistory();
         setLeads(dbLeads);
@@ -38,6 +43,9 @@ export default function ReportsScreen() {
       } catch (err) {
         console.error("Failed to load reports data:", err);
       }
+      finally {
+      setLoading(false); // stop loader
+    }
     };
 
     loadData();
@@ -197,39 +205,45 @@ export default function ReportsScreen() {
         />
       )}
 
-      {/* Reports List */}
-      {leadsWithCalls.length === 0 ? (
-        <View style={styles.noReportContainer}>
-          <MaterialIcons name="info-outline" size={40} color="#c0c6c6" />
-          <Text style={styles.noReportText}>No reports available for selected filters.</Text>
-        </View>
-      ) : (
-        leadsWithCalls.map((lead) => {
-          const { totalCalls, totalDuration } = getLeadCalls(lead.phone);
-          return (
-            <View key={lead.id} style={styles.card}>
-              <View style={styles.left}>
-                <View style={styles.avatar}>
-                  <MaterialIcons name="person" size={24} color="#fff" />
-                </View>
-                <Text style={styles.name}>{lead.name}</Text>
-              </View>
-
-              <View style={styles.middle}>
-                <FontAwesome name="phone" size={22} color="#1abc9c" />
-                <Text style={styles.statValue}>{totalCalls}</Text>
-                <Text style={styles.statLabel}>Total Calls</Text>
-              </View>
-
-              <View style={styles.right}>
-                <MaterialIcons name="timer" size={22} color="#3498db" />
-                <Text style={styles.statValue}>{formatDuration(totalDuration)}</Text>
-                <Text style={styles.statLabel}>Duration</Text>
-              </View>
+    {loading ? (
+  <View style={styles.loadingContainer}>
+    <ActivityIndicator size="large" color="#1abc9c" />
+    <Text style={styles.loadingText}>Loading reports...</Text>
+  </View>
+) : (
+  leadsWithCalls.length === 0 ? (
+    <View style={styles.noReportContainer}>
+      <MaterialIcons name="info-outline" size={40} color="#c0c6c6" />
+      <Text style={styles.noReportText}>No reports available for selected filters.</Text>
+    </View>
+  ) : (
+    leadsWithCalls.map((lead) => {
+      const { totalCalls, totalDuration } = getLeadCalls(lead.phone);
+      return (
+        <View key={lead.id} style={styles.card}>
+          <View style={styles.left}>
+            <View style={styles.avatar}>
+              <MaterialIcons name="person" size={24} color="#fff" />
             </View>
-          );
-        })
-      )}
+            <Text style={styles.name}>{lead.name}</Text>
+          </View>
+
+          <View style={styles.middle}>
+            <FontAwesome name="phone" size={22} color="#1abc9c" />
+            <Text style={styles.statValue}>{totalCalls}</Text>
+            <Text style={styles.statLabel}>Total Calls</Text>
+          </View>
+
+          <View style={styles.right}>
+            <MaterialIcons name="timer" size={22} color="#3498db" />
+            <Text style={styles.statValue}>{formatDuration(totalDuration)}</Text>
+            <Text style={styles.statLabel}>Duration</Text>
+          </View>
+        </View>
+      );
+    })
+  )
+)}
     </ScrollView>
   );
 }
@@ -241,6 +255,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
   },
+  loadingContainer: {
+  flex: 1,
+  justifyContent: "center",
+  alignItems: "center",
+  marginTop: 60,
+},
+loadingText: {
+  marginTop: 10,
+  color: "#1abc9c",
+  fontSize: 14,
+  fontWeight: "500",
+},
+
   scrollContent: {
     paddingBottom: 40,
   },

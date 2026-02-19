@@ -249,7 +249,7 @@ const BottomTabs: React.FC<BottomTabProps> = ({
       </Text>
     </TouchableOpacity>
 
-    <TouchableOpacity
+    {/* <TouchableOpacity
       style={[styles.tabButton, activeTab === 'history' && styles.tabActive]}
       onPress={() => setActiveTab('history')}
     >
@@ -263,7 +263,7 @@ const BottomTabs: React.FC<BottomTabProps> = ({
       >
         History
       </Text>
-    </TouchableOpacity>
+    </TouchableOpacity> */}
 
     <TouchableOpacity
       style={[styles.tabButton, activeTab === 'reports' && styles.tabActive]}
