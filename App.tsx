@@ -18,6 +18,7 @@ import ReportsScreen from './src/screens/ReportsScreen';
 import TimelineScreen from './src/screens/TimelineScreen';
 import SplashScreen from './src/screens/SplashScreen'; // ✅ direct, shows every launch
 import LoginScreen from './src/screens/LoginScreen';
+import { fetchAndStoreLeads } from './src/services/leadsService';
 
 import {
   initDB,
@@ -119,11 +120,23 @@ export default function App() {
     ]);
   }, []);
 
+  // const handleLoginSuccess = useCallback(async () => {
+  //   setLoggedIn(true);
+  //   const user = await getLoggedInUser();
+  //   setUsername(user?.user_name || 'User');
+  // }, []);
   const handleLoginSuccess = useCallback(async () => {
-    setLoggedIn(true);
-    const user = await getLoggedInUser();
-    setUsername(user?.user_name || 'User');
-  }, []);
+  setLoggedIn(true);
+  const user = await getLoggedInUser();
+  setUsername(user?.user_name || 'User');
+
+  // Fetch all leads from server and store in DB
+  await fetchAndStoreLeads();
+
+  // Load leads from DB to state
+  const dbLeads = await getLeads();
+  setLeads(dbLeads);
+}, []);
 
   // ✅ Single handler — no more double toggle
   const handleTimelineTabPress = useCallback(() => {
