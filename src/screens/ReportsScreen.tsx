@@ -100,6 +100,19 @@ export default function ReportsScreen() {
         lead.phone.includes(searchQuery)
     );
 
+    const summaryData = leadsWithCalls.reduce(
+  (acc, lead) => {
+    const { totalCalls, totalDuration } = getLeadCalls(lead.phone);
+
+    acc.totalLeads += 1;
+    acc.totalCalls += totalCalls;
+    acc.totalDuration += totalDuration;
+
+    return acc;
+  },
+  { totalLeads: 0, totalCalls: 0, totalDuration: 0 }
+);
+
   const monthNames = [
     "January","February","March","April","May","June",
     "July","August","September","October","November","December"
@@ -215,6 +228,29 @@ export default function ReportsScreen() {
           }}
         />
       )}
+
+      {/* Summary Card */}
+<View style={styles.summaryCard}>
+  <View style={styles.summaryItem}>
+    <MaterialIcons name="groups" size={22} color="#1abc9c" />
+    <Text style={styles.summaryValue}>{summaryData.totalLeads}</Text>
+    <Text style={styles.summaryLabel}>Total Leads</Text>
+  </View>
+
+  <View style={styles.summaryItem}>
+    <FontAwesome name="phone" size={20} color="#3498db" />
+    <Text style={styles.summaryValue}>{summaryData.totalCalls}</Text>
+    <Text style={styles.summaryLabel}>Total Calls</Text>
+  </View>
+
+  <View style={styles.summaryItem}>
+    <MaterialIcons name="timer" size={22} color="#e67e22" />
+    <Text style={styles.summaryValue}>
+      {formatDuration(summaryData.totalDuration)}
+    </Text>
+    <Text style={styles.summaryLabel}>Total Duration</Text>
+  </View>
+</View>
 
     {loading ? (
   <View style={styles.loadingContainer}>
@@ -369,6 +405,37 @@ loadingText: {
     fontSize: 14,
     color: "#2c3e50",
   },
+
+  summaryCard: {
+  flexDirection: "row",
+  backgroundColor: "#ffffff",
+  borderRadius: 16,
+  paddingVertical: 10,
+  marginBottom: 16,
+  justifyContent: "space-around",
+  alignItems: "center",
+  elevation: 4,
+  shadowColor: "#000",
+  shadowOpacity: 0.08,
+  shadowOffset: { width: 0, height: 3 },
+  shadowRadius: 6,
+},
+
+summaryItem: {
+  alignItems: "center",
+},
+
+summaryValue: {
+  fontSize: 18,
+  fontWeight: "700",
+  marginTop: 4,
+},
+
+summaryLabel: {
+  fontSize: 11,
+  color: "#7f8c8d",
+  marginTop: 2,
+},
   card: {
     flexDirection: "row",
     backgroundColor: "#fff",
