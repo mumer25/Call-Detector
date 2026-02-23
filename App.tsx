@@ -81,6 +81,35 @@ export default function App() {
     initializeApp();
   }, [tryHideSplash]);
 
+
+  const syncInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+// -------------------- AUTO SYNC EVERY 5 MINUTES --------------------
+useEffect(() => {
+  if (!loggedIn) return;
+
+  // Sync immediately on login
+  const syncLeads = async () => {
+    try {
+      await fetchAndStoreLeads();
+      const dbLeads = await getLeads();
+      setLeads(dbLeads);
+      console.log('Auto-sync done');
+    } catch (e) {
+      console.warn('Auto-sync failed:', e);
+    }
+  };
+
+  syncLeads(); // run once immediately
+
+  // Then repeat every 5 minutes
+  syncInterval.current = setInterval(syncLeads, 5 * 60 * 1000);
+
+  return () => {
+    if (syncInterval.current) clearInterval(syncInterval.current);
+  };
+}, [loggedIn]);
+
   // -------------------- ANDROID BACK BUTTON --------------------
   useEffect(() => {
     const backAction = () => {
