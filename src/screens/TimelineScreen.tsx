@@ -248,7 +248,10 @@ const filteredLeads = leadsData
       </View>
 
       {loading ? (
-        <ActivityIndicator size="large" color="#3b5353" style={styles.loader} />
+         <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#1abc9c" />
+            <Text style={styles.loadingText}>Loading timeline...</Text>
+          </View>
       ) : filteredLeads.length === 0 ? (
         <Text style={styles.emptyText}>No interaction history found.</Text>
       ) : (
@@ -271,7 +274,6 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, height: 40, color: '#000' },
   searchIcon: { marginLeft: 8 },
   scrollContent: { paddingHorizontal: 20 },
-  loader: { marginTop: 50 },
   timelineContainer: { padding: 20, paddingTop: 20 },
   timelineRow: { flexDirection: 'row', marginBottom: 30, minHeight: 80 },
   leftColumn: { width: 60, alignItems: 'center' },
@@ -289,6 +291,18 @@ const styles = StyleSheet.create({
   leadTextContainer: { flex: 1 },
   leadName: { fontSize: 16, fontWeight: '700', color: '#1e293b' },
   leadPhone: { fontSize: 13, color: '#64748b', marginTop: 2 },
+  loadingContainer: {
+  flex: 1,
+  justifyContent: "center",
+  alignItems: "center",
+  marginTop: 30,
+},
+  loadingText: {
+  marginTop: 10,
+  color: "#1abc9c",
+  fontSize: 14,
+  fontWeight: "500",
+},
 });
 
 

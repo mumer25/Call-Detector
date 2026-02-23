@@ -230,11 +230,12 @@ useEffect(() => {
       ) : (
         <>
           {/* TOTAL LEADS */}
-          <View style={styles.totalLeadsWrapper}>
-            <Text style={styles.totalLeadsText}>
-              Total Leads: {filteredLeads.length}
-            </Text>
-          </View>
+         <View style={styles.totalLeadsWrapper}>
+  <MaterialIcons name="groups" size={22} color="#1abc9c" style={styles.totalLeadsIcon} />
+  <Text style={styles.totalLeadsText}>
+    Total Leads: {filteredLeads.length}
+  </Text>
+</View>
 
           <FlatList
             data={filteredLeads}
@@ -334,22 +335,30 @@ const styles = StyleSheet.create({
 
   activeFilterText: { color: "#fff" },
 
-  totalLeadsWrapper: {
-    paddingHorizontal: 16,
-    paddingVertical: 3,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    marginHorizontal: 12,
-    marginBottom: 8,
-    elevation: 2,
-  },
+totalLeadsWrapper: {
+  paddingHorizontal: 16,
+  paddingVertical: 3,
+  backgroundColor: "#fff",
+  borderRadius: 12,
+  marginHorizontal: 12,
+  marginBottom: 8,
+  elevation: 2,
+  flexDirection: "row",    // ✅ icon + text side by side
+  alignItems: "center",    // ✅ vertically centered
+},
 
-  totalLeadsText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#2c3e50",
-    textAlign: "center",
-  },
+totalLeadsIcon: {
+  position: "absolute",    // ✅ icon pinned to left
+  left: 16,
+},
+
+totalLeadsText: {
+  fontSize: 14,
+  fontWeight: "700",
+  color: "#2c3e50",
+  flex: 1,                 // ✅ takes full width
+  textAlign: "center",     // ✅ text centered in remaining space
+},
 
   list: { paddingHorizontal: 12, paddingBottom: 32 },
 
