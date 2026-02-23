@@ -121,6 +121,10 @@ const filteredLeads = leadsData
         return <Ionicons name="calendar" size={24} color="#3498db" />;
       case 'interested':
         return <Ionicons name="checkmark-circle" size={24} color="#2ecc71" />;
+      case 'interested:warm':
+        return <Ionicons name="checkmark-circle" size={24} color="#2ecc71" />;
+      case 'interested:hot':
+        return <Ionicons name="checkmark-circle" size={24} color="#2ecc71" />;
       case 'not interested':
       case 'not_interested':
         return <Ionicons name="close-circle" size={24} color="#e74c3c" />;
@@ -135,6 +139,8 @@ const filteredLeads = leadsData
       case '1':
       case 'incoming':
       case 'interested':
+      case 'interested:warm':
+      case 'interested:hot':
       case 'whatsapp':
         return '#2ecc71';
       case '3':
