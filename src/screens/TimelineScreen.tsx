@@ -198,15 +198,23 @@ const filteredLeads = leadsData
               {index !== history.length - 1 && <View style={styles.verticalLine} />}
             </View>
 
-            <View style={styles.card}>
-              <View style={[styles.statusBadge, { backgroundColor: getBadgeColor(log.type) }]}>
-                <Text style={styles.statusBadgeText}>{getBadgeText(log.type)}</Text>
-              </View>
-              <Text style={styles.timeText}>
-                {formatTime(log.time)} | {formatDate(log.time)}
-              </Text>
-              {log.duration > 0 && <Text style={styles.noteText}>Duration: {formatDuration(log.duration)}</Text>}
-            </View>
+          <View style={styles.card}>
+  <View style={[styles.statusBadge, { backgroundColor: getBadgeColor(log.type) }]}>
+    <Text style={styles.statusBadgeText}>{getBadgeText(log.type)}</Text>
+  </View>
+   {/* ✅ Show follow up date/time from note */}
+  {log.note && log.note.startsWith("Follow Up:") && (
+    <Text style={styles.noteText}>
+      <Ionicons name="calendar" size={12} color="#1abc9c" style={styles.searchIcon} /> {log.note.replace("Follow Up:", "").trim()}
+    </Text>
+  )}
+  <Text style={styles.timeText}>
+    {formatTime(log.time)} | {formatDate(log.time)}
+  </Text>
+  {log.duration > 0 && (
+    <Text style={styles.noteText}>Duration: {formatDuration(log.duration)}</Text>
+  )}
+</View>
           </View>
         ))}
       </View>

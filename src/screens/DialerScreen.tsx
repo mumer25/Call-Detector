@@ -133,16 +133,29 @@ export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimelin
     return digits.length > 10 ? digits : `91${digits}`;
   };
 
-  const updateLeadStatusHandler = async (newStatus: LeadStatus) => {
-    setStatus(newStatus);
-    try {
-      await updateLeadStatusDB(phone, newStatus);
-      setShowTick(false);
-      setPendingStatus(null);
-    } catch (e) {
-      console.error("Failed to update lead status:", e);
+const updateLeadStatusHandler = async (newStatus: LeadStatus) => {
+  try {
+    const pureStatuses = ["Wrong Number", "Not Interested", "Interested:Warm", "Interested:Hot"];
+
+    if (pureStatuses.includes(newStatus)) {
+      // Save in status column, taskName = null
+      await updateLeadStatusDB(phone, newStatus, null);
+      setStatus(newStatus); // update UI after DB
+    } else if (newStatus.startsWith("Follow Up:")) {
+      // Keep current status as-is, save Follow Up string in taskName
+      await updateLeadStatusDB(phone, status, newStatus); // status is still old value here
+      // Don't update status UI, only taskName changed
+    } else {
+      await updateLeadStatusDB(phone, newStatus, null);
+      setStatus(newStatus);
     }
-  };
+
+    setShowTick(false);
+    setPendingStatus(null);
+  } catch (e) {
+    console.error("Failed to update lead status:", e);
+  }
+};
 
 
   const makeCall = async () => {
@@ -216,36 +229,6 @@ export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimelin
     );
   }
 };
-
-//   const openWhatsAppFollowUp = async () => {
-//   const message = note
-//     ? `Hi ${leadName}, ${note}`
-//     : `Hi ${leadName}, just following up regarding our conversation.`;
-
-//   const whatsappUrl = `whatsapp://send?phone=${getWhatsAppNumber()}&text=${encodeURIComponent(
-//     message
-//   )}`;
-
-//   try {
-//     await Linking.openURL(whatsappUrl);
-
-//     // Insert WhatsApp log
-//     await insertHistory(null, phone, new Date().toISOString(), 0, "whatsapp");
-
-//     // Automatically update lead status
-//   const updatedStatus: LeadStatus = `Follow Up: ${new Date().toLocaleString()}`;
-// setStatus(updatedStatus);
-// await updateLeadStatusDB(phone, updatedStatus);
-
-//     // Reload logs
-//     loadLeadLogs();
-//   } catch {
-//     Alert.alert(
-//       "WhatsApp not available",
-//       "Please install WhatsApp or check the phone number format."
-//     );
-//   }
-// };
 
 
   const handleActionClick = (
@@ -508,45 +491,7 @@ const goToPreviousLead = () => {
                 style={styles.dateTimePicker}
               />
       )}
-      {/* {showFollowUpModal && (
-        <Modal transparent animationType="fade">
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Select Follow-Up Date & Time</Text>
-
-              <DateTimePicker
-                value={followUpDate || new Date()}
-                mode={followUpMode}
-                display="default"
-                onChange={(event: DateTimePickerEvent, selected?: Date) => {
-                  if (event.type === "set" && selected) {
-                    const updated = new Date(followUpDate || new Date());
-                    if (followUpMode === "date") {
-                      updated.setFullYear(selected.getFullYear());
-                      updated.setMonth(selected.getMonth());
-                      updated.setDate(selected.getDate());
-                      setFollowUpDate(updated);
-                      setFollowUpMode("time");
-                    } else {
-                      updated.setHours(selected.getHours());
-                      updated.setMinutes(selected.getMinutes());
-                      setFollowUpDate(updated);
-                      setPendingStatus(`Follow Up: ${updated.toLocaleString()}`);
-                      setShowTick(true);
-                      setFollowUpMode("date");
-                      setShowFollowUpModal(false);
-                    }
-                  } else if (event.type === "dismissed") {
-                    setShowFollowUpModal(false);
-                    setFollowUpMode("date");
-                  }
-                }}
-                style={styles.dateTimePicker}
-              />
-            </View>
-          </View>
-        </Modal>
-      )} */}
+    
     </View>
   );
 }
@@ -688,6 +633,699 @@ timelineButton: {
   dateTimePicker: { width: "100%", marginVertical: 6 },
   modalButtonText: { color: "#fff", fontWeight: "700", fontSize: 14, textAlign: "center" },
 });
+
+
+
+// import React, { useEffect, useState, useCallback } from "react";
+// import {
+//   View,
+//   Text,
+//   TouchableOpacity,
+//   StyleSheet,
+//   TextInput,
+//   Linking,
+//   Alert,
+//   ScrollView,
+//   Modal,
+// } from "react-native";
+// import Ionicons from "react-native-vector-icons/Ionicons";
+// import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
+// import { getLeads, insertHistory, getHistory, updateLeadStatusDB } from "../db/database";
+
+// /* ================= TYPES ================= */
+// type LeadStatus =
+//   | "New"
+//   | "Wrong Number"
+//   | "Not Interested"
+//   | "Interested:Warm"
+//   | "Interested:Hot"
+//   | `Follow Up: ${string}`;
+
+// export type Lead = {
+//   name?: string;
+//   phone: string;
+//   status?: LeadStatus;
+//   note?: string;
+// };
+
+// export type DialerCallLog = {
+//   id: number;
+//   number: string;
+//   type: "incoming" | "outgoing" | "missed" | "dialed";
+//   status?: LeadStatus;
+//   note?: string;
+//   duration?: number;
+//   time: string;
+// };
+
+
+// type Props = {
+//   phone: string;
+//   leads: Lead[];
+//   onSelectLead: (phone: string) => void;
+//   onOpenTimeline?: () => void;
+// };
+
+// /* ================= SCREEN ================= */
+// export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimeline }: Props) {
+//   const [note, setNote] = useState("");
+//   const [status, setStatus] = useState<LeadStatus>("New");
+//   const [leadName, setLeadName] = useState<string>("");
+//   const [leadLogs, setLeadLogs] = useState<DialerCallLog[]>([]);
+//   const [showTick, setShowTick] = useState(false);
+//   const [pendingStatus, setPendingStatus] = useState<LeadStatus | null>(null);
+
+//   const [showInterestModal, setShowInterestModal] = useState(false);
+//   const [selectedInterest, setSelectedInterest] = useState<"Warm" | "Hot" | null>(null);
+
+//   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+//   const [followUpDate, setFollowUpDate] = useState<Date | null>(new Date());
+//   const [followUpMode, setFollowUpMode] = useState<"date" | "time">("date");
+
+//   const normalize = (num: string) => num.replace(/\D/g, "");
+
+//   /* ================= LOAD LEAD ================= */
+//   const loadLead = useCallback(async () => {
+//     try {
+//       const dbLeads = await getLeads();
+//       const found = dbLeads.find((l) => normalize(l.phone) === normalize(phone));
+//       if (found) {
+//         setLeadName(found.name || phone);
+//         setStatus(found.status || "New");
+//       } else {
+//         setLeadName(phone);
+//       }
+//     } catch (e) {
+//       console.error("Failed to load lead:", e);
+//       setLeadName(phone);
+//     }
+//   }, [phone]);
+
+//  const loadLeadLogs = useCallback(async () => {
+//   try {
+//     const logs = await getHistory();
+
+//     // const mapped: DialerCallLog[] = logs
+//     //   .filter((l) => normalize(l.number) === normalize(phone))
+//     //   .map((l) => ({
+//     //     id: Number(l.id),                 // ✅ FIX: string → number
+//     //     number: l.number,
+//     //     type: l.type ?? "dialed",
+//     //     duration: l.duration ?? 0,
+//     //     time: l.time,
+//     //   }));
+
+//     const mapped: DialerCallLog[] = logs
+//   .filter((l) => normalize(l.number) === normalize(phone))
+//   .map((l) => {
+//     // Force type into allowed values
+//     let type: DialerCallLog["type"] = "dialed"; // default
+//     if (l.type === "incoming" || l.type === "outgoing" || l.type === "missed") {
+//       type = l.type;
+//     }
+
+//     return {
+//       id: Number(l.id),                 // string → number
+//       number: l.number,
+//       type,
+//       duration: l.duration ?? 0,
+//       time: l.time,
+//     };
+//   });
+
+//     setLeadLogs(mapped);
+//   } catch (e) {
+//     console.error("Failed to load history:", e);
+//   }
+// }, [phone]);
+
+
+//   useEffect(() => {
+//     loadLead();
+//     loadLeadLogs();
+//   }, [loadLead, loadLeadLogs]);
+
+//   /* ================= HELPERS ================= */
+//   const getWhatsAppNumber = () => {
+//     const digits = normalize(phone);
+//     return digits.length > 10 ? digits : `91${digits}`;
+//   };
+
+//   const updateLeadStatusHandler = async (newStatus: LeadStatus) => {
+//     setStatus(newStatus);
+//     try {
+//       await updateLeadStatusDB(phone, newStatus);
+//       setShowTick(false);
+//       setPendingStatus(null);
+//     } catch (e) {
+//       console.error("Failed to update lead status:", e);
+//     }
+//   };
+
+
+//   const makeCall = async () => {
+//   try {
+//     const dialUrl = `tel:${phone}`;
+//     await Linking.openURL(dialUrl);
+//     // Do NOT insert call log here
+//   } catch {
+//     Alert.alert("Dialer Error", "Unable to open phone dialer on this device.");
+//   }
+// };
+
+
+//   // const makeCall = async () => {
+//   //   try {
+//   //     const dialUrl = `tel:${phone}`;
+//   //     await Linking.openURL(dialUrl);
+
+//   //     await insertHistory(null, phone, new Date().toISOString(), 0);
+//   //     loadLeadLogs();
+//   //   } catch {
+//   //     Alert.alert("Dialer Error", "Unable to open phone dialer on this device.");
+//   //   }
+//   // };
+
+//   // const openWhatsAppFollowUp = async () => {
+//   //   const message = note
+//   //     ? `Hi ${leadName}, ${note}`
+//   //     : `Hi ${leadName}, just following up regarding our conversation.`;
+
+//   //   const whatsappUrl = `whatsapp://send?phone=${getWhatsAppNumber()}&text=${encodeURIComponent(
+//   //     message
+//   //   )}`;
+
+//   //   try {
+//   //     await Linking.openURL(whatsappUrl);
+//   //   } catch {
+//   //     Alert.alert(
+//   //       "WhatsApp not available",
+//   //       "Please install WhatsApp or check the phone number format."
+//   //     );
+//   //   }
+//   // };
+
+//   const openWhatsAppFollowUp = async () => {
+//   const message = note
+//     ? `Hi ${leadName}, ${note}`
+//     : `Hi ${leadName}, just following up regarding our conversation.`;
+
+//   const whatsappUrl = `whatsapp://send?phone=${getWhatsAppNumber()}&text=${encodeURIComponent(
+//     message
+//   )}`;
+
+//   try {
+//     await Linking.openURL(whatsappUrl);
+
+//     // Insert WhatsApp log (optional, immediately)
+//     await insertHistory(null, phone, new Date().toISOString(), 0, "whatsapp");
+
+//     // Instead of updating status immediately, set as pending
+//     const updatedStatus: LeadStatus = `Follow Up: ${new Date().toLocaleString()}`;
+//     setPendingStatus(updatedStatus);
+//     setShowTick(true);
+
+//     // Reload logs to show the WhatsApp entry
+//     loadLeadLogs();
+//   } catch {
+//     Alert.alert(
+//       "WhatsApp not available",
+//       "Please install WhatsApp or check the phone number format."
+//     );
+//   }
+// };
+
+// //   const openWhatsAppFollowUp = async () => {
+// //   const message = note
+// //     ? `Hi ${leadName}, ${note}`
+// //     : `Hi ${leadName}, just following up regarding our conversation.`;
+
+// //   const whatsappUrl = `whatsapp://send?phone=${getWhatsAppNumber()}&text=${encodeURIComponent(
+// //     message
+// //   )}`;
+
+// //   try {
+// //     await Linking.openURL(whatsappUrl);
+
+// //     // Insert WhatsApp log
+// //     await insertHistory(null, phone, new Date().toISOString(), 0, "whatsapp");
+
+// //     // Automatically update lead status
+// //   const updatedStatus: LeadStatus = `Follow Up: ${new Date().toLocaleString()}`;
+// // setStatus(updatedStatus);
+// // await updateLeadStatusDB(phone, updatedStatus);
+
+// //     // Reload logs
+// //     loadLeadLogs();
+// //   } catch {
+// //     Alert.alert(
+// //       "WhatsApp not available",
+// //       "Please install WhatsApp or check the phone number format."
+// //     );
+// //   }
+// // };
+
+
+//   const handleActionClick = (
+//     action: "Wrong Number" | "Not Interested" | "Interested" | "Follow Up"
+//   ) => {
+//     if (action === "Interested") {
+//       setShowInterestModal(true);
+//     } else if (action === "Follow Up") {
+//       setShowFollowUpModal(true);
+//     } else {
+//       setPendingStatus(action);
+//       setShowTick(true);
+//     }
+//   };
+
+//   const confirmTick = () => {
+//     if (pendingStatus) updateLeadStatusHandler(pendingStatus);
+//   };
+
+//   const selectInterestLevel = (level: "Warm" | "Hot") => {
+//     setSelectedInterest(level);
+//     setPendingStatus(`Interested:${level}`);
+//     setShowInterestModal(false);
+//     setShowTick(true);
+//   };
+
+//  const goToNextLead = () => {
+//   if (!leads.length) return;
+
+//   const currentIndex = leads.findIndex(
+//     (l) => normalize(l.phone) === normalize(phone)
+//   );
+
+//   if (currentIndex === -1) {
+//     console.warn("Current lead not found in leads list");
+//     return;
+//   }
+
+//   const nextIndex = (currentIndex + 1) % leads.length;
+//   onSelectLead(leads[nextIndex].phone);
+// };
+
+// const goToPreviousLead = () => {
+//   if (!leads.length) return;
+
+//   const currentIndex = leads.findIndex(
+//     (l) => normalize(l.phone) === normalize(phone)
+//   );
+
+//   if (currentIndex === -1) {
+//     console.warn("Current lead not found in leads list");
+//     return;
+//   }
+
+//   const prevIndex =
+//     (currentIndex - 1 + leads.length) % leads.length;
+
+//   onSelectLead(leads[prevIndex].phone);
+// };
+
+
+//   const totalDuration = leadLogs.reduce((sum, l) => sum + (l.duration || 0), 0);
+//   const formatDuration = (seconds: number) => {
+//     const mins = Math.floor(seconds / 60);
+//     const secs = seconds % 60;
+//     return `${mins}m ${secs}s`;
+//   };
+
+//   /* ================= UI ================= */
+//   return (
+//     <View style={styles.mainContainer}>
+//       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+//         {/* LEAD CARD */}
+//         <View style={styles.leadCard}>
+//           <View style={styles.avatar}>
+//             <Text style={styles.avatarText}>{leadName.charAt(0)}</Text>
+//           </View>
+
+//           <View style={styles.leadInfo}>
+//             <Text style={styles.leadName}>{leadName}</Text>
+//             <Text style={styles.leadPhone}>{phone}</Text>
+
+//             <View style={styles.statusBadge}>
+//               <Text style={styles.statusBadgeText}>{status.toUpperCase()}</Text>
+//             </View>
+
+//             {leadLogs.length > 0 && (
+//               <View style={styles.historySummary}>
+//                 {/* <Text style={styles.historyText}>Total Calls: {leadLogs.length}</Text> */}
+//                 <Text style={styles.historyText}>
+//                   Call Duration: {formatDuration(totalDuration)}
+//                 </Text>
+//               </View>
+//             )}
+//           </View>
+
+//           <TouchableOpacity style={styles.callButton} onPress={makeCall}>
+//             <Ionicons name="call" size={26} color="#fff" />
+//           </TouchableOpacity>
+//         </View>
+
+//         {/* ACTION BUTTONS */}
+//         <View style={styles.actionsRow}>
+//           <ActionButton
+//             label="Wrong Number"
+//             icon="close-circle"
+//             color="#e74c3c"
+//             onPress={() => handleActionClick("Wrong Number")}
+//           />
+//           <ActionButton
+//             label="Not Interested"
+//             icon="thumbs-down"
+//             color="#f33412"
+//             onPress={() => handleActionClick("Not Interested")}
+//           />
+//           <ActionButton
+//             label="Interested"
+//             icon="thumbs-up"
+//             color="#2ecc71"
+//             onPress={() => handleActionClick("Interested")}
+//           />
+//           <ActionButton
+//             label="Follow Up"
+//             icon="calendar"
+//             color="#3498db"
+//             onPress={() => handleActionClick("Follow Up")}
+//           />
+
+//           <ActionButton
+//             label="Whatsapp"
+//             icon="logo-whatsapp"
+//             color="#25D366"
+//             onPress={openWhatsAppFollowUp}
+//           />
+//         </View>
+
+//         {/* NOTE INPUT */}
+//         <TextInput
+//           placeholder="Add note..."
+//           value={note}
+//           onChangeText={setNote}
+//           multiline
+//           style={styles.noteBox}
+//         />
+
+//         {/* TICK MARK */}
+//         {showTick && (
+//           <View style={styles.tickContainer}>
+//             <TouchableOpacity style={styles.tickCircle} onPress={confirmTick}>
+//               <Ionicons name="checkmark" size={36} color="#fff" />
+//             </TouchableOpacity>
+//           </View>
+//         )}
+//       </ScrollView>
+
+//       {/* FIXED PREVIOUS/NEXT BUTTONS */}
+//      <View style={styles.fixedBottom}>
+//   {/* Previous Lead */}
+// <TouchableOpacity style={styles.prevNextButton} onPress={goToPreviousLead}>
+//   <View style={styles.iconContainer}>
+//     <Ionicons name="chevron-back" size={24} color="#fff" />
+//   </View>
+//   <View style={styles.textContainer}>
+//     <Text style={styles.prevNextText}>Previous Lead</Text>
+//   </View>
+// </TouchableOpacity>
+
+//   {/* Timeline */}
+//   <TouchableOpacity
+//     style={styles.timelineButton}
+//     onPress={() => onOpenTimeline && onOpenTimeline()}
+//   >
+//     <Ionicons name="time" size={36} color="#038ba0" />
+//   </TouchableOpacity>
+
+//   {/* Next Lead */}
+//  <TouchableOpacity style={styles.prevNextButton} onPress={goToNextLead}>
+//   <View style={styles.textContainer}>
+//     <Text style={styles.prevNextText}>Next Lead</Text>
+//   </View>
+//   <View style={styles.iconContainer}>
+//     <Ionicons name="chevron-forward" size={24} color="#fff" />
+//   </View>
+// </TouchableOpacity>
+// </View>
+
+
+//       {/* INTEREST MODAL */}
+//       <Modal transparent visible={showInterestModal} animationType="fade">
+//         <View style={styles.modalContainer}>
+//           <View style={styles.modalContent}>
+//             <Text style={styles.modalTitle}>Select Interest Level</Text>
+
+//             {["Warm", "Hot"].map((level) => (
+//               <TouchableOpacity
+//                 key={level}
+//                 style={[
+//                   styles.optionRow,
+//                   selectedInterest === level ? styles.modalButtonSelected : null,
+//                 ]}
+//                 onPress={() => setSelectedInterest(level as "Warm" | "Hot")}
+//               >
+//                 <View style={styles.radioCircle}>
+//                   {selectedInterest === level && <View style={styles.checkedCircle} />}
+//                 </View>
+//                 <Text style={styles.optionText}>{level}</Text>
+//               </TouchableOpacity>
+//             ))}
+
+//             <View style={styles.modalButtonsRow}>
+//               <TouchableOpacity
+//                 style={styles.modalConfirmButton}
+//                 onPress={() => {
+//                   if (selectedInterest) selectInterestLevel(selectedInterest);
+//                 }}
+//               >
+//                 <Text style={styles.modalButtonText}>Confirm</Text>
+//               </TouchableOpacity>
+
+//               <TouchableOpacity
+//                 style={styles.modalCancelButton}
+//                 onPress={() => setShowInterestModal(false)}
+//               >
+//                 <Text style={styles.modalButtonText}>Cancel</Text>
+//               </TouchableOpacity>
+//             </View>
+//           </View>
+//         </View>
+//       </Modal>
+
+//       {/* FOLLOW-UP MODAL */}
+//        {showFollowUpModal && (
+//               <DateTimePicker
+//                 value={followUpDate || new Date()}
+//                 mode={followUpMode}
+//                 display="default"
+//                 onChange={(event: DateTimePickerEvent, selected?: Date) => {
+//                   if (event.type === "set" && selected) {
+//                     const updated = new Date(followUpDate || new Date());
+//                     if (followUpMode === "date") {
+//                       updated.setFullYear(selected.getFullYear());
+//                       updated.setMonth(selected.getMonth());
+//                       updated.setDate(selected.getDate());
+//                       setFollowUpDate(updated);
+//                       setFollowUpMode("time");
+//                     } else {
+//                       updated.setHours(selected.getHours());
+//                       updated.setMinutes(selected.getMinutes());
+//                       setFollowUpDate(updated);
+//                       setPendingStatus(`Follow Up: ${updated.toLocaleString()}`);
+//                       setShowTick(true);
+//                       setFollowUpMode("date");
+//                       setShowFollowUpModal(false);
+//                     }
+//                   } else if (event.type === "dismissed") {
+//                     setShowFollowUpModal(false);
+//                     setFollowUpMode("date");
+//                   }
+//                 }}
+//                 style={styles.dateTimePicker}
+//               />
+//       )}
+//       {/* {showFollowUpModal && (
+//         <Modal transparent animationType="fade">
+//           <View style={styles.modalContainer}>
+//             <View style={styles.modalContent}>
+//               <Text style={styles.modalTitle}>Select Follow-Up Date & Time</Text>
+
+//               <DateTimePicker
+//                 value={followUpDate || new Date()}
+//                 mode={followUpMode}
+//                 display="default"
+//                 onChange={(event: DateTimePickerEvent, selected?: Date) => {
+//                   if (event.type === "set" && selected) {
+//                     const updated = new Date(followUpDate || new Date());
+//                     if (followUpMode === "date") {
+//                       updated.setFullYear(selected.getFullYear());
+//                       updated.setMonth(selected.getMonth());
+//                       updated.setDate(selected.getDate());
+//                       setFollowUpDate(updated);
+//                       setFollowUpMode("time");
+//                     } else {
+//                       updated.setHours(selected.getHours());
+//                       updated.setMinutes(selected.getMinutes());
+//                       setFollowUpDate(updated);
+//                       setPendingStatus(`Follow Up: ${updated.toLocaleString()}`);
+//                       setShowTick(true);
+//                       setFollowUpMode("date");
+//                       setShowFollowUpModal(false);
+//                     }
+//                   } else if (event.type === "dismissed") {
+//                     setShowFollowUpModal(false);
+//                     setFollowUpMode("date");
+//                   }
+//                 }}
+//                 style={styles.dateTimePicker}
+//               />
+//             </View>
+//           </View>
+//         </Modal>
+//       )} */}
+//     </View>
+//   );
+// }
+
+// /* ================= ACTION BUTTON ================= */
+// function ActionButton({
+//   label,
+//   icon,
+//   color,
+//   onPress,
+// }: {
+//   label: string;
+//   icon: string;
+//   color: string;
+//   onPress: () => void;
+// }) {
+//   return (
+//     <TouchableOpacity style={styles.actionItem} onPress={onPress}>
+//       <Ionicons name={icon} size={40} color={color} />
+//       <Text style={styles.actionText}>{label}</Text>
+//     </TouchableOpacity>
+//   );
+// }
+
+// /* ================= STYLES ================= */
+// const styles = StyleSheet.create({
+//   mainContainer: { flex: 1 },
+//   container: { flex: 1, backgroundColor: "#eef5f4", padding: 16 },
+//   scrollContent: { paddingBottom: 100 },
+//   leadCard: {
+//     flexDirection: "row",
+//     backgroundColor: "#fff",
+//     borderRadius: 14,
+//     padding: 10,
+//     alignItems: "center",
+//     elevation: 4,
+//   },
+//   avatar: {
+//     width: 50,
+//     height: 50,
+//     borderRadius: 25,
+//     backgroundColor: "#16a085",
+//     alignItems: "center",
+//     justifyContent: "center",
+//   },
+//   avatarText: { color: "#fff", fontSize: 20, fontWeight: "700" },
+//   leadInfo: { flex: 1, marginLeft: 12 },
+//   leadName: { fontSize: 18, fontWeight: "700", color: "#2c3e50" },
+//   leadPhone: { fontSize: 14, color: "#555", marginTop: 2 },
+//   statusBadge: {
+//     marginTop: 6,
+//     backgroundColor: "#ecf0f1",
+//     paddingHorizontal: 4,
+//     borderRadius: 6,
+//     alignSelf: "flex-start",
+//   },
+//   statusBadgeText: { fontSize: 10, fontWeight: "600", color: "#555" },
+//   historySummary: { marginTop: 2, paddingHorizontal: 2, paddingVertical: 4, borderRadius: 6 },
+//   historyText: { fontSize: 10, color: "#34495e" },
+//   callButton: {
+//     backgroundColor: "#2ecc71",
+//     width: 56,
+//     height: 56,
+//     borderRadius: 28,
+//     alignItems: "center",
+//     justifyContent: "center",
+//   },
+//   actionsRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 20 },
+//   actionItem: { flex: 1, alignItems: "center", marginHorizontal: 4 },
+//   actionText: { fontSize: 11, marginTop: 6, textAlign: "center" },
+//   noteBox: {
+//     backgroundColor: "#fff",
+//     marginTop: 20,
+//     borderRadius: 12,
+//     padding: 12,
+//     height: 200,
+//     textAlignVertical: "top",
+//   },
+//   tickContainer: { alignItems: "center", marginTop: 10 },
+//   tickCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#2ecc71", alignItems: "center", justifyContent: "center", elevation: 4 },
+//   fixedBottom: {
+//   position: "absolute",
+//   bottom: 12,
+//   left: 12,
+//   right: 12,
+//   flexDirection: "row",
+//   justifyContent: "space-between",
+//   alignItems: "center",
+// },
+
+// // Make both buttons same width
+// prevNextButton: {
+//   flex: 1,
+//   flexDirection: "row",
+//   alignItems: "center",
+//   backgroundColor: "#1abc9c",
+//   paddingVertical: 12,
+//   borderRadius: 12,
+//   marginHorizontal: 2,
+// },
+
+// iconContainer: {
+//   width: 18,              // fixed width for icon
+//   alignItems: "center",   // center icon in its container
+// },
+// textContainer: {
+//   flex: 0.9,                 // takes remaining space
+//   alignItems: "center",    // center text
+// },
+
+// prevNextText: {
+//   color: "#fff",
+//   fontWeight: "700",
+//   fontSize: 12,
+//   textAlign: "center",
+// },
+
+// timelineButton: {
+//   width: 60,
+//   height: 60,
+//   borderRadius: 30,
+//   backgroundColor: "#fff",
+//   alignItems: "center",
+//   justifyContent: "center",
+//   marginHorizontal: 4,
+//   elevation: 4,
+// },
+//   modalContainer: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
+//   modalContent: { backgroundColor: "#fff", padding: 20, borderRadius: 14, width: "80%", alignItems: "center" },
+//   modalTitle: { fontSize: 16, fontWeight: "700", marginBottom: 12 },
+//   modalButtonSelected: { backgroundColor: "#bcedd0" },
+//   optionRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 8, width: "100%", borderRadius: 10, borderWidth: 1, borderColor: "#ecf0f1", marginVertical: 6 },
+//   radioCircle: { height: 24, width: 24, borderRadius: 12, borderWidth: 2, borderColor: "#2ecc71", alignItems: "center", justifyContent: "center", marginRight: 12 },
+//   checkedCircle: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#90e3b2" },
+//   optionText: { fontSize: 16, color: "#2c3e50" },
+//   modalButtonsRow: { flexDirection: "row", justifyContent: "space-between", gap: 20, marginTop: 20 },
+//   modalConfirmButton: { width: 90, backgroundColor: "#2ecc71", paddingVertical: 12, borderRadius: 10, alignItems: "center" },
+//   modalCancelButton: { width: 90, backgroundColor: "#e74c3c", paddingVertical: 12, borderRadius: 10, alignItems: "center" },
+//   dateTimePicker: { width: "100%", marginVertical: 6 },
+//   modalButtonText: { color: "#fff", fontWeight: "700", fontSize: 14, textAlign: "center" },
+// });
 
 
 

@@ -42,6 +42,7 @@ await database.executeSql(`
       name TEXT NOT NULL,
       phone TEXT NOT NULL UNIQUE,
       status TEXT,
+      taskName TEXT,
       status_time TEXT,
       assignee TEXT,
       source TEXT
@@ -131,6 +132,7 @@ export const insertLead = async (
   name: string,
   phone: string,
   status: string = "Open",
+  taskName: string | null = null,
   assignee: string = "",
   source: string = "web"
 ): Promise<void> => {
@@ -151,6 +153,7 @@ export const insertLead = async (
     if (
       oldLead.name !== name ||
       oldLead.status !== status ||
+      oldLead.taskName !== null || // always update taskName to null on new lead creation
       oldLead.assignee !== assignee ||
       oldLead.source !== source
     ) {
@@ -160,22 +163,24 @@ export const insertLead = async (
              status = ?, 
              assignee = ?, 
              source = ?,
+             taskName = ?,
              status_time = CASE 
                WHEN status != ? THEN ? 
                ELSE status_time 
              END
          WHERE phone = ?;`,
-        [name, status, assignee, source, status, now, phone]
+        [name, status, assignee, source, taskName, status, now, phone]
       );
     }
   } else {
     // 3️⃣ Insert new lead
     await database.executeSql(
       `INSERT INTO leads 
-        (id, name, phone, status, status_time, assignee, source)
+        (id, name, phone, status, taskName, status_time, assignee, source)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [lead_id, name, phone, status, now, assignee, source]
+      [lead_id, name, phone, status, null, now, assignee, source]
     );
+    console.log(`[INSERT] New Lead: ${phone} | Status: ${status} | Task: ${taskName} | Time: ${now}`);
   }
 };
 
@@ -205,12 +210,12 @@ export const searchLeads = async (query: string): Promise<any[]> => {
   return leads;
 };
 
-export const updateLeadStatusDB = async (phone: string, status: string) => {
+export const updateLeadStatusDB = async (phone: string, status: string, taskName: string | null = null) => {
   const database = await openDatabase();
   const now = new Date().toISOString();
   await database.executeSql(
-    "UPDATE leads SET status = ?, status_time = ? WHERE phone = ?;",
-    [status, now, phone]
+    "UPDATE leads SET status = ?, taskName = ?, status_time = ? WHERE phone = ?;",
+    [status, taskName, now, phone]
   );
 };
 
@@ -370,9 +375,10 @@ export const getAllLeadsWithHistoryAndStatus = async (): Promise<{ lead: any; hi
 
   const historyByPhone: Record<string, TimelineLog[]> = {};
 
-  // Group history by phone
+  // 1️⃣ Group call history by phone
   for (let i = 0; i < historyRows.length; i++) {
     const row = historyRows.item(i);
+
     const log: TimelineLog = {
       id: row.id.toString(),
       number: row.phone,
@@ -381,18 +387,23 @@ export const getAllLeadsWithHistoryAndStatus = async (): Promise<{ lead: any; hi
       time: row.date,
       note: row.note || "",
     };
-    if (!historyByPhone[row.phone]) historyByPhone[row.phone] = [];
+
+    if (!historyByPhone[row.phone]) {
+      historyByPhone[row.phone] = [];
+    }
+
     historyByPhone[row.phone].push(log);
   }
 
   const finalData: { lead: any; history: TimelineLog[] }[] = [];
 
+  // 2️⃣ Merge lead status + follow-up
   for (let i = 0; i < leads.length; i++) {
     const lead = leads.item(i);
-    let logs = historyByPhone[lead.phone] || [];
+    let logs = historyByPhone[lead.phone] ? [...historyByPhone[lead.phone]] : [];
 
-    // Include status change only if status exists and is not "Open"
-    if (lead.status && lead.status !== "Open") {
+    // ✅ Add STATUS (Interested / Not Interested / Wrong Number)
+    if (lead.status && lead.status !== "Open" && lead.status !== "New") {
       logs.push({
         id: `status_${lead.id}`,
         number: lead.phone,
@@ -403,10 +414,34 @@ export const getAllLeadsWithHistoryAndStatus = async (): Promise<{ lead: any; hi
       });
     }
 
-    // Sort logs by time descending
-    logs.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+    // ✅ Add FOLLOW UP (from taskName) with actual follow up date/time
+    if (lead.taskName && lead.taskName.startsWith("Follow Up:")) {
+      // Extract the date string after "Follow Up:"
+      const followUpDateStr = lead.taskName.replace("Follow Up:", "").trim();
 
-    // Remove consecutive duplicate/unchanged logs
+      // Try to parse it — works for both ISO and locale strings
+      const followUpDate = new Date(followUpDateStr);
+      const validTime =
+        !isNaN(followUpDate.getTime())
+          ? followUpDate.toISOString()
+          : lead.status_time || new Date().toISOString(); // fallback
+
+      logs.push({
+        id: `followup_${lead.id}`,
+        number: lead.phone,
+        type: "followup",
+        duration: 0,
+        time: validTime,       // ✅ actual scheduled follow up date/time
+        note: lead.taskName,   // ✅ "Follow Up: 2/23/2025, 3:00 PM" for display
+      });
+    }
+
+    // 3️⃣ Sort by time descending
+    logs.sort(
+      (a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()
+    );
+
+    // 4️⃣ Remove duplicates
     const uniqueLogs: TimelineLog[] = [];
     logs.forEach((log) => {
       const last = uniqueLogs[uniqueLogs.length - 1];
@@ -421,7 +456,7 @@ export const getAllLeadsWithHistoryAndStatus = async (): Promise<{ lead: any; hi
       }
     });
 
-    // Only include leads with at least one updated timeline
+    // Include only leads with activity
     if (uniqueLogs.length > 0) {
       finalData.push({
         lead,
@@ -430,7 +465,7 @@ export const getAllLeadsWithHistoryAndStatus = async (): Promise<{ lead: any; hi
     }
   }
 
-  // Sort leads by the latest timeline
+  // 5️⃣ Sort leads by latest activity
   finalData.sort((a, b) => {
     const aTime = a.history.length ? new Date(a.history[0].time).getTime() : 0;
     const bTime = b.history.length ? new Date(b.history[0].time).getTime() : 0;
@@ -439,6 +474,90 @@ export const getAllLeadsWithHistoryAndStatus = async (): Promise<{ lead: any; hi
 
   return finalData;
 };
+
+// export const getAllLeadsWithHistoryAndStatus = async (): Promise<{ lead: any; history: TimelineLog[] }[]> => {
+//   await openDatabase();
+//   if (!db) throw new Error("DB not initialized");
+
+//   const [leadsResult, historyResult] = await Promise.all([
+//     db.executeSql("SELECT * FROM leads ORDER BY id DESC;"),
+//     db.executeSql("SELECT * FROM history ORDER BY date DESC;"),
+//   ]);
+
+//   const leads = leadsResult[0].rows;
+//   const historyRows = historyResult[0].rows;
+
+//   const historyByPhone: Record<string, TimelineLog[]> = {};
+
+//   // Group history by phone
+//   for (let i = 0; i < historyRows.length; i++) {
+//     const row = historyRows.item(i);
+//     const log: TimelineLog = {
+//       id: row.id.toString(),
+//       number: row.phone,
+//       type: row.type as TimelineLog["type"],
+//       duration: row.duration || 0,
+//       time: row.date,
+//       note: row.note || "",
+//     };
+//     if (!historyByPhone[row.phone]) historyByPhone[row.phone] = [];
+//     historyByPhone[row.phone].push(log);
+//   }
+
+//   const finalData: { lead: any; history: TimelineLog[] }[] = [];
+
+//   for (let i = 0; i < leads.length; i++) {
+//     const lead = leads.item(i);
+//     let logs = historyByPhone[lead.phone] || [];
+
+//     // Include status change only if status exists and is not "Open"
+//     if (lead.status && lead.status !== "Open") {
+//       logs.push({
+//         id: `status_${lead.id}`,
+//         number: lead.phone,
+//         type: lead.status as TimelineLog["type"],
+//         duration: 0,
+//         time: lead.status_time || new Date().toISOString(),
+//         status: lead.status,
+//       });
+//     }
+
+//     // Sort logs by time descending
+//     logs.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+//     // Remove consecutive duplicate/unchanged logs
+//     const uniqueLogs: TimelineLog[] = [];
+//     logs.forEach((log) => {
+//       const last = uniqueLogs[uniqueLogs.length - 1];
+//       if (
+//         !last ||
+//         last.type !== log.type ||
+//         last.status !== log.status ||
+//         last.note !== log.note ||
+//         last.duration !== log.duration
+//       ) {
+//         uniqueLogs.push(log);
+//       }
+//     });
+
+//     // Only include leads with at least one updated timeline
+//     if (uniqueLogs.length > 0) {
+//       finalData.push({
+//         lead,
+//         history: uniqueLogs,
+//       });
+//     }
+//   }
+
+//   // Sort leads by the latest timeline
+//   finalData.sort((a, b) => {
+//     const aTime = a.history.length ? new Date(a.history[0].time).getTime() : 0;
+//     const bTime = b.history.length ? new Date(b.history[0].time).getTime() : 0;
+//     return bTime - aTime;
+//   });
+
+//   return finalData;
+// };
 
 
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef  } from "react";
 import {
   View,
   Text,
@@ -41,21 +41,36 @@ export default function LeadsScreen({ onSelectLead }: Props) {
   const [selectedFilter, setSelectedFilter] = useState<string>("All");
 
   // ---------------- LOAD FROM DB ----------------
-  const loadLeadsFromDB = useCallback(async () => {
-    try {
-      const savedLeads = await getLeads();
-      setLeads(savedLeads);
-    } catch (err) {
-      console.error("Error loading leads:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+const loadLeadsFromDB = useCallback(async () => {
+  try {
+    const savedLeads = await getLeads();
+    setLeads(savedLeads);
+  } catch (err) {
+    console.error("Error loading leads:", err);
+  } finally {
+    setLoading(false);
+    setRefreshing(false); // ✅ added
+  }
+}, []);
 
   // ---------------- INITIAL LOAD ----------------
-  useEffect(() => {
-    loadLeadsFromDB();
-  }, [loadLeadsFromDB]);
+const hasAutoRefreshed = useRef(false);
+
+// ---------------- INITIAL LOAD + ONE-TIME AUTO REFRESH ----------------
+useEffect(() => {
+  loadLeadsFromDB();
+
+  if (!hasAutoRefreshed.current) {
+    hasAutoRefreshed.current = true;
+    const timer = setTimeout(async () => {
+      setRefreshing(true);
+      await loadLeadsFromDB();
+      setRefreshing(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }
+}, [loadLeadsFromDB]);
 
   // ---------------- REFRESH ----------------
   const refreshLeads = useCallback(async () => {
@@ -321,7 +336,7 @@ const styles = StyleSheet.create({
 
   totalLeadsWrapper: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 3,
     backgroundColor: "#fff",
     borderRadius: 12,
     marginHorizontal: 12,
@@ -333,6 +348,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#2c3e50",
+    textAlign: "center",
   },
 
   list: { paddingHorizontal: 12, paddingBottom: 32 },
@@ -382,14 +398,7 @@ const styles = StyleSheet.create({
   },
 
   center: { flex: 1, alignItems: "center" },
-
-  // statusBadge: {
-  //   paddingHorizontal: 12,
-  //   paddingVertical: 4,
-  //   borderRadius: 16,
-  //   minWidth: 80,
-  //   alignItems: "center",
-  // },
+  
   statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 16, alignSelf: "center", minWidth: 90, maxWidth: 120, marginRight: 26, alignItems: "center", justifyContent: "center" },
 
   statusText: {
