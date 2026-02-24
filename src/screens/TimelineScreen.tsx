@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   card: { flex: 1, backgroundColor: '#fff', marginLeft: 10, borderRadius: 15, paddingHorizontal: 18, paddingVertical: 15, elevation: 3 },
   statusBadge: { marginTop: 6, paddingHorizontal: 8, borderRadius: 6, alignSelf: 'flex-start' },
   statusBadgeText: { fontSize: 11, fontWeight: '600', color: '#fff' },
-  timeText: { fontSize: 12, color: '#7f8c8d', marginTop: 4 },
+  timeText: { fontSize: 10, color: '#7f8c8d', marginTop: 4,textAlign: 'right' },
   noteText: { marginTop: 6, color: '#555', fontSize: 14 },
   emptyText: { textAlign: 'center', marginTop: 50, color: '#3b5353', fontSize: 16 },
   leadSection: { marginBottom: 40 },

@@ -261,7 +261,7 @@ export default function ReportsScreen() {
   leadsWithCalls.length === 0 ? (
     <View style={styles.noReportContainer}>
       <MaterialIcons name="info-outline" size={40} color="#c0c6c6" />
-      <Text style={styles.noReportText}>No reports available for selected filters.</Text>
+      <Text style={styles.noReportText}>No reports available.</Text>
     </View>
   ) : (
     leadsWithCalls.map((lead) => {

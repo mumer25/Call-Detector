@@ -45,7 +45,9 @@ await database.executeSql(`
       taskName TEXT,
       status_time TEXT,
       assignee TEXT,
-      source TEXT
+      source TEXT,
+      follow_up_date TEXT,
+      created_at TEXT
     );
   `);
 
@@ -79,7 +81,49 @@ export interface CallLog {
 }
 
 
+/* ================= HELPER — Parse "2025-02-23, 02:20 PM" → ISO ================= */
+const parseFollowUpDateStr = (dateStr: string): string | null => {
+  try {
+    // Accepts: "2026-02-25 02:00 PM" or "2026-02-25, 02:00 PM"
+    const normalized = dateStr.replace(",", "").trim(); // remove comma
+    const parts = normalized.split(" ");                // ["2026-02-25", "02:00", "PM"]
+    if (parts.length < 3) return null;
 
+    const [datePart, timePart, ampm] = parts;
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [rawHours, rawMins] = timePart.split(":").map(Number);
+
+    let hours = rawHours;
+    if (ampm === "PM" && hours !== 12) hours += 12;
+    if (ampm === "AM" && hours === 12) hours = 0;
+
+    const parsed = new Date(year, month - 1, day, hours, rawMins, 0);
+    return !isNaN(parsed.getTime()) ? parsed.toISOString() : null;
+  } catch {
+    return null;
+  }
+};
+// const parseFollowUpDateStr = (dateStr: string): string | null => {
+//   try {
+//     // Format: "2025-02-23, 02:20 PM"
+//     const normalized = dateStr.replace(",", "").trim(); // "2025-02-23 02:20 PM"
+//     const parts = normalized.split(" ");                // ["2025-02-23", "02:20", "PM"]
+//     if (parts.length < 3) return null;
+
+//     const [datePart, timePart, ampm] = parts;
+//     const [year, month, day] = datePart.split("-").map(Number);
+//     const [rawHours, rawMins] = timePart.split(":").map(Number);
+
+//     let hours = rawHours;
+//     if (ampm === "PM" && hours !== 12) hours += 12;
+//     if (ampm === "AM" && hours === 12) hours = 0;
+
+//     const parsed = new Date(year, month - 1, day, hours, rawMins, 0);
+//     return !isNaN(parsed.getTime()) ? parsed.toISOString() : null;
+//   } catch {
+//   return null;
+// }
+// };
 
 // ====================== Schemas =====================
 
@@ -177,10 +221,9 @@ export const insertLead = async (
     await database.executeSql(
       `INSERT INTO leads 
         (id, name, phone, status, taskName, status_time, assignee, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [lead_id, name, phone, status, null, now, assignee, source]
     );
-    console.log(`[INSERT] New Lead: ${phone} | Status: ${status} | Task: ${taskName} | Time: ${now}`);
   }
 };
 
@@ -210,16 +253,161 @@ export const searchLeads = async (query: string): Promise<any[]> => {
   return leads;
 };
 
-export const updateLeadStatusDB = async (phone: string, status: string, taskName: string | null = null) => {
+/* ================= UPDATE LEAD STATUS ================= */
+// export const updateLeadStatusDB = async (
+//   phone: string,
+//   status: string,
+//   taskName?: string | null | undefined
+// ) => {
+//   const database = await openDatabase();
+//   const now = new Date().toISOString();
+
+//   if (taskName !== undefined && taskName !== null && taskName.startsWith("Follow Up:")) {
+//     // ✅ Parse "Follow Up: 2025-02-23, 02:20 PM" → ISO for DB storage
+//     const dateStr = taskName.replace("Follow Up:", "").trim();
+//     const followUpDate = parseFollowUpDateStr(dateStr) ?? now;
+
+//     console.log("💾 Saving follow_up_date:", followUpDate, "| taskName:", taskName);
+
+//     await database.executeSql(
+//       `UPDATE leads SET taskName = ?, follow_up_date = ?, status_time = ? WHERE phone = ?;`,
+//       [taskName, followUpDate, now, phone]
+//     );
+
+//     // ✅ Verify saved correctly
+//     const check = await database.executeSql(
+//       "SELECT follow_up_date, taskName FROM leads WHERE phone = ?;", [phone]
+//     );
+//     console.log("✅ Verified:", check[0].rows.item(0));
+
+//   } else if (taskName === undefined) {
+//     // ✅ Only status — never touch taskName or follow_up_date
+//     await database.executeSql(
+//       `UPDATE leads SET status = ?, status_time = ? WHERE phone = ?;`,
+//       [status, now, phone]
+//     );
+
+//   } else {
+//     // ✅ Status with explicit null — only update status
+//     await database.executeSql(
+//       `UPDATE leads SET status = ?, status_time = ? WHERE phone = ?;`,
+//       [status, now, phone]
+//     );
+//   }
+// };
+
+// const formatForOracle = (isoString: string) => {
+//   const date = new Date(isoString);
+
+//   const yyyy = date.getFullYear();
+//   const mm = String(date.getMonth() + 1).padStart(2, "0");
+//   const dd = String(date.getDate()).padStart(2, "0");
+//   const hh = String(date.getHours()).padStart(2, "0");
+//   const min = String(date.getMinutes()).padStart(2, "0");
+//   const ss = String(date.getSeconds()).padStart(2, "0");
+
+//   return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+// };
+
+/* ================= SYNC FOLLOW UP TO SERVER ================= */
+const syncFollowUpToServer = async (
+  leadId: number,
+  followUpDateISO: string,
+) => {
+  try {
+    // ✅ Only send YYYY-MM-DD
+    const dateOnly = followUpDateISO.split("T")[0]; // "2026-02-26"
+
+    const url =
+      "https://server103.multi-techno.com:8383/ords/ard_holdings/crm_app/Update_followup_date";
+
+    const body = `LEAD_ID=${leadId}&FOLLOW_UP_DATE=${encodeURIComponent(
+      dateOnly
+    )}`;
+
+    console.log("📡 Calling API (FORM POST):", body);
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body,
+    });
+
+    const text = await response.text();
+    console.log("Status:", response.status);
+    console.log("Response:", text);
+
+    if (!response.ok) {
+      console.error("❌ Follow up API error");
+    } else {
+      console.log("✅ Follow up synced successfully");
+    }
+  } catch (e) {
+    console.error("❌ Failed to sync follow up:", e);
+  }
+};
+
+/* ================= UPDATE LEAD STATUS ================= */
+export const updateLeadStatusDB = async (
+  phone: string,
+  status: string,
+  taskName?: string | null
+) => {
   const database = await openDatabase();
   const now = new Date().toISOString();
-  await database.executeSql(
-    "UPDATE leads SET status = ?, taskName = ?, status_time = ? WHERE phone = ?;",
-    [status, taskName, now, phone]
-  );
+  const FOLLOW_UP_PREFIX = "Follow Up:";
+
+  try {
+    // ================= FOLLOW UP =================
+    if (taskName && taskName.startsWith(FOLLOW_UP_PREFIX)) {
+      const dateStr = taskName.replace(FOLLOW_UP_PREFIX, "").trim();
+      const followUpDateISO = parseFollowUpDateStr(dateStr) ?? now;
+
+      await database.executeSql(
+        `UPDATE leads 
+         SET taskName = ?, 
+             follow_up_date = ?, 
+             status_time = ?
+         WHERE phone = ?;`,
+        [taskName, followUpDateISO, now, phone]
+      );
+
+      // ✅ sync to backend with DATE only
+      const lead = await getLeadByPhone(phone);
+      const entityId = await getEntityId();
+      if (lead?.id && entityId) {
+        await syncFollowUpToServer(lead.id, followUpDateISO);
+      }
+
+      return;
+    }
+
+    // ================= STATUS ONLY =================
+    // "Wrong number", "Interested", "Not Interested", etc.
+    await database.executeSql(
+      `UPDATE leads 
+       SET status = ?, 
+           status_time = ?
+       WHERE phone = ?;`,
+      [status, now, phone]
+    );
+
+  } catch (error) {
+    console.error("❌ updateLeadStatusDB error:", error);
+  }
 };
 
 
+
+export const getEntityId = async (): Promise<string | null> => {
+  const database = await openDatabase();
+  const result = await database.executeSql("SELECT entity_id FROM users LIMIT 1;");
+  const rows = result[0].rows;
+  if (rows.length > 0) return rows.item(0).entity_id;
+  return null;
+};
 
 /* ================= CALL HISTORY ================= */
 export const insertHistory = async (
@@ -474,6 +662,9 @@ export const getAllLeadsWithHistoryAndStatus = async (): Promise<{ lead: any; hi
 
   return finalData;
 };
+
+
+
 
 // export const getAllLeadsWithHistoryAndStatus = async (): Promise<{ lead: any; history: TimelineLog[] }[]> => {
 //   await openDatabase();

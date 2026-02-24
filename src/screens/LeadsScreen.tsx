@@ -24,6 +24,7 @@ export type Lead = {
   assignee: string;
   source: string;
   city?: string;
+  follow_up_date?: string;
 };
 
 type Props = {
@@ -167,6 +168,21 @@ useEffect(() => {
     );
   };
 
+  const formatFollowUpDate = (isoString: string | undefined): string | null => {
+  if (!isoString) return null;
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return null;
+  const year = d.getFullYear();
+  const month = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  let hours = d.getHours();
+  const mins = d.getMinutes().toString().padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  const hoursStr = hours.toString().padStart(2, "0");
+  return `${year}-${month}-${day}, ${hoursStr}:${mins} ${ampm}`;
+};
+
   // ---------------- RENDER ----------------
   return (
     <View style={styles.container}>
@@ -257,6 +273,15 @@ useEffect(() => {
                     {renderSourceIcon(item.source)}
                   </View>
                   <Text style={styles.phone}>{item.phone || "N/A"}</Text>
+                  {/* ✅ Follow-up date */}
+{item.follow_up_date && (
+  <View style={styles.followUpContainer}>
+    <MaterialIcons name="calendar-today" size={10} color="#3498db" />
+    <Text style={styles.followUpText}> {formatFollowUpDate(item.follow_up_date)}</Text>
+  </View>
+)}
+
+{item.city && <Text style={styles.city}>{item.city}</Text>}
                   {item.city && <Text style={styles.city}>{item.city}</Text>}
                 </View>
 
@@ -405,6 +430,18 @@ totalLeadsText: {
     color: "#7f8c8d",
     marginTop: 2,
   },
+
+  followUpContainer: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginTop: 2,
+},
+
+followUpText: {
+  fontSize: 10,
+  color: "#3498db",
+  fontWeight: "600",
+},
 
   center: { flex: 1, alignItems: "center" },
   
