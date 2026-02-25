@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, useRef  } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -7,9 +7,12 @@ import {
   StyleSheet,
   TextInput,
   ActivityIndicator,
+  Modal,
+  Platform,
 } from "react-native";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   getLeads,
   searchLeads,
@@ -33,6 +36,131 @@ type Props = {
   onOpenHistory?: () => void;
 };
 
+type FollowUpFilter = "none" | "pending" | "today" | "range";
+
+// FollowUpState for badge logic
+type FollowUpState = "pending" | "today" | "overdue" | "scheduled";
+
+// ---------------- HELPERS ----------------
+const toDateOnly = (iso: string): string => iso.slice(0, 10);
+
+const todayStr = (): string => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const getFollowUpState = (lead: Lead): FollowUpState => {
+  if (!lead.follow_up_date) return "pending";
+  const d = toDateOnly(lead.follow_up_date);
+  const today = todayStr();
+  if (d === today) return "today";
+  if (d < today) return "overdue";
+  return "scheduled";
+};
+
+// Badge config per state
+const BADGE_CONFIG: Record<FollowUpState, { bg: string; icon: string; label: string }> = {
+  pending:   { bg: "#e67e22", icon: "schedule",        label: "Pending"   },
+  overdue:   { bg: "#e74c3c", icon: "warning",         label: "Overdue"   },
+  today:     { bg: "#27ae60", icon: "today",           label: "Today"     },
+  scheduled: { bg: "#8e44ad", icon: "event-available", label: "Scheduled" },
+};
+
+// ---------------- CORNER BADGE ----------------
+function FollowUpBadge({ state }: { state: FollowUpState }) {
+  const cfg = BADGE_CONFIG[state];
+  return (
+    <View style={[badgeStyles.circle, { backgroundColor: cfg.bg }]}>
+      <MaterialIcons name={cfg.icon as any} size={14} color="#fff" />
+    </View>
+  );
+}
+
+const badgeStyles = StyleSheet.create({
+  circle: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 24,
+    height: 24,
+    borderTopRightRadius: 16,
+    borderBottomLeftRadius: 13,
+    borderTopLeftRadius: 0,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+});
+
+// ---------------- DATE INPUT ----------------
+function DateInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [show, setShow] = useState(false);
+
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    setShow(false);
+    if (selectedDate) {
+      const year = selectedDate.getFullYear();
+      const month = (selectedDate.getMonth() + 1).toString().padStart(2, "0");
+      const day = selectedDate.getDate().toString().padStart(2, "0");
+      onChange(`${year}-${month}-${day}`);
+    }
+  };
+
+  return (
+    <View style={dateStyles.wrapper}>
+      <Text style={dateStyles.label}>{label}</Text>
+      <TouchableOpacity
+        style={dateStyles.input}
+        onPress={() => setShow(true)}
+        activeOpacity={0.8}
+      >
+        <Text
+          style={[
+            dateStyles.dateText,
+            value ? dateStyles.dateTextFilled : dateStyles.dateTextPlaceholder,
+          ]}
+        >
+          {value || "Select Date"}
+        </Text>
+      </TouchableOpacity>
+      {show && (
+        <DateTimePicker
+          value={value ? new Date(value) : new Date()}
+          mode="date"
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={onDateChange}
+        />
+      )}
+    </View>
+  );
+}
+
+const dateStyles = StyleSheet.create({
+  wrapper: { marginBottom: 12 },
+  label: { fontSize: 12, color: "#7f8c8d", marginBottom: 4, fontWeight: "600" },
+  input: {
+    borderWidth: 1,
+    borderColor: "#dcdcdc",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#f9fafb",
+  },
+  dateText: { fontSize: 14 },
+  dateTextFilled: { color: "#2c3e50" },
+  dateTextPlaceholder: { color: "#aab" },
+});
+
 // ---------------- COMPONENT ----------------
 export default function LeadsScreen({ onSelectLead }: Props) {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -41,37 +169,50 @@ export default function LeadsScreen({ onSelectLead }: Props) {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [selectedFilter, setSelectedFilter] = useState<string>("All");
 
+  // ---- Follow-up filter state ----
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [followUpFilter, setFollowUpFilter] = useState<FollowUpFilter>("none");
+  const [rangeFrom, setRangeFrom] = useState<string>("");
+  const [rangeTo, setRangeTo] = useState<string>("");
+  // Applied values (only set when user taps Apply)
+  const [appliedFollowUpFilter, setAppliedFollowUpFilter] = useState<FollowUpFilter>("none");
+  const [appliedRangeFrom, setAppliedRangeFrom] = useState<string>("");
+  const [appliedRangeTo, setAppliedRangeTo] = useState<string>("");
+
+  const isFollowUpActive =
+    appliedFollowUpFilter === "pending" ||
+    appliedFollowUpFilter === "today" ||
+    (appliedFollowUpFilter === "range" &&
+      (appliedRangeFrom !== "" || appliedRangeTo !== ""));
+
   // ---------------- LOAD FROM DB ----------------
-const loadLeadsFromDB = useCallback(async () => {
-  try {
-    const savedLeads = await getLeads();
-    setLeads(savedLeads);
-  } catch (err) {
-    console.error("Error loading leads:", err);
-  } finally {
-    setLoading(false);
-    setRefreshing(false); // ✅ added
-  }
-}, []);
+  const loadLeadsFromDB = useCallback(async () => {
+    try {
+      const savedLeads = await getLeads();
+      setLeads(savedLeads);
+    } catch (err) {
+      console.error("Error loading leads:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   // ---------------- INITIAL LOAD ----------------
-const hasAutoRefreshed = useRef(false);
+  const hasAutoRefreshed = useRef(false);
 
-// ---------------- INITIAL LOAD + ONE-TIME AUTO REFRESH ----------------
-useEffect(() => {
-  loadLeadsFromDB();
-
-  if (!hasAutoRefreshed.current) {
-    hasAutoRefreshed.current = true;
-    const timer = setTimeout(async () => {
-      setRefreshing(true);
-      await loadLeadsFromDB();
-      setRefreshing(false);
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }
-}, [loadLeadsFromDB]);
+  useEffect(() => {
+    loadLeadsFromDB();
+    if (!hasAutoRefreshed.current) {
+      hasAutoRefreshed.current = true;
+      const timer = setTimeout(async () => {
+        setRefreshing(true);
+        await loadLeadsFromDB();
+        setRefreshing(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [loadLeadsFromDB]);
 
   // ---------------- REFRESH ----------------
   const refreshLeads = useCallback(async () => {
@@ -83,7 +224,6 @@ useEffect(() => {
   // ---------------- SEARCH HANDLER ----------------
   const handleSearch = async (text: string) => {
     setSearchQuery(text);
-
     if (text.trim() === "") {
       await loadLeadsFromDB();
     } else {
@@ -92,26 +232,68 @@ useEffect(() => {
     }
   };
 
+  // ---------------- APPLY FILTER ----------------
+  const handleApplyFilter = () => {
+    setAppliedFollowUpFilter(followUpFilter);
+    setAppliedRangeFrom(rangeFrom);
+    setAppliedRangeTo(rangeTo);
+    setFilterModalVisible(false);
+  };
+
+  const handleClearFilter = () => {
+    setFollowUpFilter("none");
+    setRangeFrom("");
+    setRangeTo("");
+    setAppliedFollowUpFilter("none");
+    setAppliedRangeFrom("");
+    setAppliedRangeTo("");
+    setFilterModalVisible(false);
+  };
+
+  const openFilterModal = () => {
+    setFollowUpFilter(appliedFollowUpFilter);
+    setRangeFrom(appliedRangeFrom);
+    setRangeTo(appliedRangeTo);
+    setFilterModalVisible(true);
+  };
+
   // ---------------- FILTER + SEARCH COMBINED ----------------
- const filteredLeads = useMemo(() => {
-  let filtered = leads;
+  const filteredLeads = useMemo(() => {
+    let filtered = leads;
 
-  if (selectedFilter === "Interested") {
-    filtered = filtered.filter((lead) =>
-      lead.status?.startsWith("Interested")
-    );
-  } else if (selectedFilter === "Follow Up") {
-    filtered = filtered.filter((lead) =>
-      lead.status?.startsWith("Follow Up")
-    );
-  } else if (selectedFilter === "Not Interested") {
-    filtered = filtered.filter((lead) => lead.status === "Not Interested");
-  } else if (selectedFilter === "Wrong Number") {
-    filtered = filtered.filter((lead) => lead.status === "Wrong Number");
-  }
+    // Status filter
+    if (selectedFilter === "Interested") {
+      filtered = filtered.filter((lead) => lead.status?.startsWith("Interested"));
+    } else if (selectedFilter === "Follow Up") {
+      filtered = filtered.filter((lead) => lead.status?.startsWith("Follow Up"));
+    } else if (selectedFilter === "Not Interested") {
+      filtered = filtered.filter((lead) => lead.status === "Not Interested");
+    } else if (selectedFilter === "Wrong Number") {
+      filtered = filtered.filter((lead) => lead.status === "Wrong Number");
+    }
 
-  return filtered;
-}, [leads, selectedFilter]);
+    // Follow-up date filter
+    if (appliedFollowUpFilter === "pending") {
+      filtered = filtered.filter((lead) => !lead.follow_up_date);
+    } else if (appliedFollowUpFilter === "today") {
+      const today = todayStr();
+      filtered = filtered.filter(
+        (lead) => lead.follow_up_date && toDateOnly(lead.follow_up_date) === today
+      );
+    } else if (appliedFollowUpFilter === "range") {
+      if (appliedRangeFrom || appliedRangeTo) {
+        filtered = filtered.filter((lead) => {
+          if (!lead.follow_up_date) return false;
+          const d = toDateOnly(lead.follow_up_date);
+          if (appliedRangeFrom && d < appliedRangeFrom) return false;
+          if (appliedRangeTo && d > appliedRangeTo) return false;
+          return true;
+        });
+      }
+    }
+
+    return filtered;
+  }, [leads, selectedFilter, appliedFollowUpFilter, appliedRangeFrom, appliedRangeTo]);
 
   // ---------------- SOURCE ICON ----------------
   const renderSourceIcon = (source: Lead["source"]) => {
@@ -169,73 +351,93 @@ useEffect(() => {
   };
 
   const formatFollowUpDate = (isoString: string | undefined): string | null => {
-  if (!isoString) return null;
-  const d = new Date(isoString);
-  if (isNaN(d.getTime())) return null;
-  const year = d.getFullYear();
-  const month = (d.getMonth() + 1).toString().padStart(2, "0");
-  const day = d.getDate().toString().padStart(2, "0");
-  let hours = d.getHours();
-  const mins = d.getMinutes().toString().padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  hours = hours % 12 || 12;
-  const hoursStr = hours.toString().padStart(2, "0");
-  return `${year}-${month}-${day}, ${hoursStr}:${mins} ${ampm}`;
-};
+    if (!isoString) return null;
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return null;
+    const year = d.getFullYear();
+    const month = (d.getMonth() + 1).toString().padStart(2, "0");
+    const day = d.getDate().toString().padStart(2, "0");
+    let hours = d.getHours();
+    const mins = d.getMinutes().toString().padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12 || 12;
+    const hoursStr = hours.toString().padStart(2, "0");
+    return `${year}-${month}-${day}, ${hoursStr}:${mins} ${ampm}`;
+  };
+
+  // active chip label helper
+  const chipLabel = (): string => {
+    if (appliedFollowUpFilter === "pending") return "Pending";
+    if (appliedFollowUpFilter === "today") return "Today";
+    return `${appliedRangeFrom || "…"} ${appliedRangeTo || "…"}`;
+  };
 
   // ---------------- RENDER ----------------
   return (
     <View style={styles.container}>
-      {/* SEARCH BAR */}
-      <View style={styles.searchWrapper}>
-        <TextInput
-          placeholder="Search by name or phone..."
-          placeholderTextColor="#7f8c8d"
-          style={styles.searchBar}
-          value={searchQuery}
-          onChangeText={handleSearch}
-        />
-
-        {searchQuery.trim().length === 0 ? (
-          <MaterialIcons
-            name="search"
-            size={22}
-            color="#7f8c8d"
-            style={styles.searchIcon}
+      {/* SEARCH BAR + FILTER ICON */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchWrapper}>
+          <TextInput
+            placeholder="Search by name or phone..."
+            placeholderTextColor="#7f8c8d"
+            style={styles.searchBar}
+            value={searchQuery}
+            onChangeText={handleSearch}
           />
-        ) : (
-          <TouchableOpacity
-            style={styles.clearIcon}
-            onPress={() => handleSearch("")}
-          >
-            <MaterialIcons name="close" size={20} color="#7f8c8d" />
-          </TouchableOpacity>
-        )}
+          {searchQuery.trim().length === 0 ? (
+            <MaterialIcons
+              name="search"
+              size={22}
+              color="#7f8c8d"
+              style={styles.searchIcon}
+            />
+          ) : (
+            <TouchableOpacity
+              style={styles.clearIcon}
+              onPress={() => handleSearch("")}
+            >
+              <MaterialIcons name="close" size={20} color="#7f8c8d" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* FILTER BUTTON */}
+        <TouchableOpacity
+          style={[styles.filterIconBtn, isFollowUpActive && styles.filterIconBtnActive]}
+          onPress={openFilterModal}
+          activeOpacity={0.8}
+        >
+          <MaterialIcons
+            name="tune"
+            size={22}
+            color={isFollowUpActive ? "#fff" : "#1abc9c"}
+          />
+          {isFollowUpActive && <View style={styles.filterDot} />}
+        </TouchableOpacity>
       </View>
 
       {/* FILTER TABS */}
       <View style={styles.filterContainer}>
-        {["All", "Interested", "Not Interested", "Wrong Number"].map(
-          (filter) => (
-            <TouchableOpacity
-              key={filter}
+        {["All", "Interested", "Not Interested", "Wrong Number"].map((filter) => (
+          <TouchableOpacity
+            key={filter}
+            style={[
+              styles.filterButton,
+              selectedFilter === filter && styles.activeFilterButton,
+            ]}
+            onPress={() => setSelectedFilter(filter)}
+          >
+            <Text
               style={[
-                styles.filterButton,
-                selectedFilter === filter && styles.activeFilterButton,
+                styles.filterText,
+                selectedFilter === filter && styles.activeFilterText,
               ]}
-              onPress={() => setSelectedFilter(filter)}
             >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedFilter === filter && styles.activeFilterText,
-                ]}
-              >
-                {filter}
-              </Text>
-            </TouchableOpacity>
-          )
-        )}
+              {filter}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {loading ? (
@@ -246,12 +448,24 @@ useEffect(() => {
       ) : (
         <>
           {/* TOTAL LEADS */}
-         <View style={styles.totalLeadsWrapper}>
-  <MaterialIcons name="groups" size={22} color="#1abc9c" style={styles.totalLeadsIcon} />
-  <Text style={styles.totalLeadsText}>
-    Total Leads: {filteredLeads.length}
-  </Text>
-</View>
+          <View style={styles.totalLeadsWrapper}>
+            <MaterialIcons
+              name="groups"
+              size={22}
+              color="#1abc9c"
+              style={styles.totalLeadsIcon}
+            />
+            <Text style={styles.totalLeadsText}>
+              Total Leads: {filteredLeads.length}
+            </Text>
+            {isFollowUpActive && (
+              <TouchableOpacity onPress={handleClearFilter} style={styles.clearFilterChip}>
+                <MaterialIcons name="event" size={12} color="#3498db" />
+                <Text style={styles.clearFilterChipText}>{chipLabel()}</Text>
+                <MaterialIcons name="close" size={12} color="#3498db" />
+              </TouchableOpacity>
+            )}
+          </View>
 
           <FlatList
             data={filteredLeads}
@@ -259,49 +473,195 @@ useEffect(() => {
             contentContainerStyle={styles.list}
             refreshing={refreshing}
             onRefresh={refreshLeads}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.card}
-                onPress={() => onSelectLead(item.phone)}
-              >
-                <View style={styles.left}>
-                  <View style={styles.nameRow}>
-                    <Text style={styles.name} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    <View style={styles.separatorLine} />
-                    {renderSourceIcon(item.source)}
+            renderItem={({ item }) => {
+              const fuState = getFollowUpState(item);
+              return (
+                <TouchableOpacity
+                  style={styles.card}
+                  onPress={() => onSelectLead(item.phone)}
+                >
+                  <FollowUpBadge state={fuState} />
+
+                  <View style={styles.left}>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.name} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <View style={styles.separatorLine} />
+                      {renderSourceIcon(item.source)}
+                    </View>
+                    <Text style={styles.phone}>{item.phone || "N/A"}</Text>
+                    {item.follow_up_date && (
+                      <View style={styles.followUpContainer}>
+                        <MaterialIcons name="calendar-today" size={10} color="#3498db" />
+                        <Text style={styles.followUpText}>
+                          {" "}
+                          {formatFollowUpDate(item.follow_up_date)}
+                        </Text>
+                      </View>
+                    )}
+                    {item.city && <Text style={styles.city}>{item.city}</Text>}
                   </View>
-                  <Text style={styles.phone}>{item.phone || "N/A"}</Text>
-                  {/* ✅ Follow-up date */}
-{item.follow_up_date && (
-  <View style={styles.followUpContainer}>
-    <MaterialIcons name="calendar-today" size={10} color="#3498db" />
-    <Text style={styles.followUpText}> {formatFollowUpDate(item.follow_up_date)}</Text>
-  </View>
-)}
 
-{item.city && <Text style={styles.city}>{item.city}</Text>}
-                  {item.city && <Text style={styles.city}>{item.city}</Text>}
-                </View>
-
-                <View style={styles.center}>
-                  {renderStatusBadge(item.status)}
-                </View>
-
-                <View style={styles.right}>
-                  <View style={styles.avatar}>
-                    <MaterialIcons name="person" size={24} color="#fff" />
+                  <View style={styles.center}>
+                    {renderStatusBadge(item.status)}
                   </View>
-                  <Text style={styles.assignee}>
-                    {item.assignee || "-"}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            )}
+
+                  <View style={styles.right}>
+                    <View style={styles.avatar}>
+                      <MaterialIcons name="person" size={24} color="#fff" />
+                    </View>
+                    <Text style={styles.assignee}>{item.assignee || "-"}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
           />
         </>
       )}
+
+      {/* ============ FILTER MODAL ============ */}
+      <Modal
+        visible={filterModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFilterModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={modalStyles.overlay}
+          activeOpacity={1}
+          onPress={() => setFilterModalVisible(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={modalStyles.sheet}
+            onPress={() => {}}
+          >
+            {/* Header */}
+            <View style={modalStyles.header}>
+              <View style={modalStyles.headerLeft}>
+                <MaterialIcons name="tune" size={20} color="#1abc9c" />
+                <Text style={modalStyles.headerTitle}>Follow-Up Filter</Text>
+              </View>
+              <TouchableOpacity onPress={() => setFilterModalVisible(false)}>
+                <MaterialIcons name="close" size={22} color="#7f8c8d" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={modalStyles.divider} />
+
+            {/* Option: No filter */}
+            <TouchableOpacity
+              style={[
+                modalStyles.optionRow,
+                followUpFilter === "none" && modalStyles.optionRowActive,
+              ]}
+              onPress={() => setFollowUpFilter("none")}
+              activeOpacity={0.8}
+            >
+              <View style={[modalStyles.radio, followUpFilter === "none" && modalStyles.radioActive]}>
+                {followUpFilter === "none" && <View style={modalStyles.radioDot} />}
+              </View>
+              <View style={modalStyles.optionTextWrap}>
+                <Text style={modalStyles.optionLabel}>All Leads</Text>
+                <Text style={modalStyles.optionSub}>No date filter applied</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Option: Pending */}
+            <TouchableOpacity
+              style={[
+                modalStyles.optionRow,
+                followUpFilter === "pending" && modalStyles.optionRowActive,
+              ]}
+              onPress={() => setFollowUpFilter("pending")}
+              activeOpacity={0.8}
+            >
+              <View style={[modalStyles.radio, followUpFilter === "pending" && modalStyles.radioActive]}>
+                {followUpFilter === "pending" && <View style={modalStyles.radioDot} />}
+              </View>
+              <View style={modalStyles.optionTextWrap}>
+                <View style={modalStyles.optionLabelRow}>
+                  <Text style={modalStyles.optionLabel}>Pending Follow-Up</Text>
+                  <View style={modalStyles.pendingBadge}>
+                    <MaterialIcons name="schedule" size={10} color="#e67e22" />
+                    <Text style={modalStyles.pendingBadgeText}>No date set</Text>
+                  </View>
+                </View>
+                <Text style={modalStyles.optionSub}>
+                  Leads with no follow-up date assigned yet
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Option: Today */}
+            <TouchableOpacity
+              style={[
+                modalStyles.optionRow,
+                followUpFilter === "today" && modalStyles.optionRowActive,
+              ]}
+              onPress={() => setFollowUpFilter("today")}
+              activeOpacity={0.8}
+            >
+              <View style={[modalStyles.radio, followUpFilter === "today" && modalStyles.radioActive]}>
+                {followUpFilter === "today" && <View style={modalStyles.radioDot} />}
+              </View>
+              <View style={modalStyles.optionTextWrap}>
+                <View style={modalStyles.optionLabelRow}>
+                  <Text style={modalStyles.optionLabel}>Today's Follow-Ups</Text>
+                  <View style={modalStyles.todayBadge}>
+                    <Text style={modalStyles.todayBadgeText}>{todayStr()}</Text>
+                  </View>
+                </View>
+                <Text style={modalStyles.optionSub}>
+                  Show only leads with follow-up scheduled today
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Option: Date Range */}
+            <TouchableOpacity
+              style={[
+                modalStyles.optionRow,
+                followUpFilter === "range" && modalStyles.optionRowActive,
+              ]}
+              onPress={() => setFollowUpFilter("range")}
+              activeOpacity={0.8}
+            >
+              <View style={[modalStyles.radio, followUpFilter === "range" && modalStyles.radioActive]}>
+                {followUpFilter === "range" && <View style={modalStyles.radioDot} />}
+              </View>
+              <View style={modalStyles.optionTextWrap}>
+                <Text style={modalStyles.optionLabel}>Custom Date Range</Text>
+                <Text style={modalStyles.optionSub}>
+                  Filter follow-ups between two dates
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Date Range Inputs */}
+            {followUpFilter === "range" && (
+              <View style={modalStyles.rangeContainer}>
+                <DateInput label="From Date" value={rangeFrom} onChange={setRangeFrom} />
+                <DateInput label="To Date" value={rangeTo} onChange={setRangeTo} />
+              </View>
+            )}
+
+            <View style={modalStyles.divider} />
+
+            {/* Buttons */}
+            <View style={modalStyles.buttonRow}>
+              <TouchableOpacity style={modalStyles.clearBtn} onPress={handleClearFilter}>
+                <Text style={modalStyles.clearBtnText}>Clear</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={modalStyles.applyBtn} onPress={handleApplyFilter}>
+                <MaterialIcons name="check" size={16} color="#fff" />
+                <Text style={modalStyles.applyBtnText}>Apply Filter</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -310,12 +670,14 @@ useEffect(() => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#eef5f4" },
 
-  searchWrapper: {
-    position: "relative",
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
     marginHorizontal: 12,
     marginVertical: 10,
+    gap: 8,
   },
-
+  searchWrapper: { flex: 1, position: "relative" },
   searchBar: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -326,10 +688,33 @@ const styles = StyleSheet.create({
     paddingRight: 40,
     elevation: 2,
   },
-
   searchIcon: { position: "absolute", right: 10, top: 10 },
-
   clearIcon: { position: "absolute", right: 10, top: 10 },
+
+  filterIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 2,
+    borderWidth: 1.5,
+    borderColor: "#1abc9c",
+    position: "relative",
+  },
+  filterIconBtnActive: { backgroundColor: "#1abc9c", borderColor: "#1abc9c" },
+  filterDot: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#e74c3c",
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
 
   filterContainer: {
     flexDirection: "row",
@@ -337,7 +722,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     gap: 6,
   },
-
   filterButton: {
     paddingHorizontal: 11,
     paddingVertical: 6,
@@ -346,44 +730,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#dcdcdc",
   },
-
-  activeFilterButton: {
-    backgroundColor: "#1abc9c",
-    borderColor: "#1abc9c",
-  },
-
-  filterText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#7f8c8d",
-  },
-
+  activeFilterButton: { backgroundColor: "#1abc9c", borderColor: "#1abc9c" },
+  filterText: { fontSize: 12, fontWeight: "600", color: "#7f8c8d" },
   activeFilterText: { color: "#fff" },
 
-totalLeadsWrapper: {
-  paddingHorizontal: 16,
-  paddingVertical: 3,
-  backgroundColor: "#fff",
-  borderRadius: 12,
-  marginHorizontal: 12,
-  marginBottom: 8,
-  elevation: 2,
-  flexDirection: "row",    // ✅ icon + text side by side
-  alignItems: "center",    // ✅ vertically centered
-},
-
-totalLeadsIcon: {
-  position: "absolute",    // ✅ icon pinned to left
-  left: 16,
-},
-
-totalLeadsText: {
-  fontSize: 14,
-  fontWeight: "700",
-  color: "#2c3e50",
-  flex: 1,                 // ✅ takes full width
-  textAlign: "center",     // ✅ text centered in remaining space
-},
+  totalLeadsWrapper: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    elevation: 2,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  totalLeadsIcon: { marginRight: 8 },
+  totalLeadsText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#2c3e50",
+    flex: 1,
+    textAlign: "center",
+  },
+  clearFilterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ebf5fb",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 3,
+    borderWidth: 1,
+    borderColor: "#3498db44",
+  },
+  clearFilterChipText: {
+    fontSize: 11,
+    color: "#3498db",
+    fontWeight: "600",
+    maxWidth: 90,
+  },
 
   list: { paddingHorizontal: 12, paddingBottom: 32 },
 
@@ -396,64 +782,30 @@ totalLeadsText: {
     marginBottom: 8,
     elevation: 3,
     alignItems: "center",
+    overflow: "hidden",
   },
-
   left: { flex: 3 },
-
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-
-  separatorLine: {
-    width: 1,
-    height: 18,
-    backgroundColor: "#7f8c8d",
-  },
-
-  name: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#2c3e50",
-    width: 96,
-  },
-
-  phone: {
-    fontSize: 14,
-    color: "#7f8c8d",
-    marginTop: 4,
-  },
-
-  city: {
-    fontSize: 12,
-    color: "#7f8c8d",
-    marginTop: 2,
-  },
-
-  followUpContainer: {
-  flexDirection: "row",
-  alignItems: "center",
-  marginTop: 2,
-},
-
-followUpText: {
-  fontSize: 10,
-  color: "#3498db",
-  fontWeight: "600",
-},
-
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  separatorLine: { width: 1, height: 18, backgroundColor: "#7f8c8d" },
+  name: { fontSize: 16, fontWeight: "700", color: "#2c3e50", width: 96 },
+  phone: { fontSize: 14, color: "#7f8c8d", marginTop: 4 },
+  city: { fontSize: 12, color: "#7f8c8d", marginTop: 2 },
+  followUpContainer: { flexDirection: "row", alignItems: "center", marginTop: 2 },
+  followUpText: { fontSize: 10, color: "#3498db", fontWeight: "600" },
   center: { flex: 1, alignItems: "center" },
-  
-  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 16, alignSelf: "center", minWidth: 90, maxWidth: 120, marginRight: 26, alignItems: "center", justifyContent: "center" },
-
-  statusText: {
-    fontSize: 12,
-    fontWeight: "700",
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 16,
+    alignSelf: "center",
+    minWidth: 90,
+    maxWidth: 120,
+    marginRight: 26,
+    alignItems: "center",
+    justifyContent: "center",
   },
-
+  statusText: { fontSize: 12, fontWeight: "700" },
   right: { flex: 1, alignItems: "center" },
-
   avatar: {
     width: 40,
     height: 40,
@@ -463,24 +815,609 @@ followUpText: {
     alignItems: "center",
     marginBottom: 4,
   },
+  assignee: { fontSize: 12, color: "#34495e" },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  syncingText: { color: "#1abc9c", marginTop: 10, fontSize: 12 },
+});
 
-  assignee: {
-    fontSize: 12,
-    color: "#34495e",
-  },
-
-  loadingContainer: {
+// ---------------- MODAL STYLES ----------------
+const modalStyles = StyleSheet.create({
+  overlay: {
     flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === "ios" ? 36 : 24,
+    elevation: 20,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerTitle: { fontSize: 16, fontWeight: "700", color: "#2c3e50" },
+  divider: { height: 1, backgroundColor: "#ecf0f1", marginVertical: 12 },
+
+  optionRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    marginBottom: 6,
+    backgroundColor: "#f8fffe",
+    borderWidth: 1.5,
+    borderColor: "transparent",
+  },
+  optionRowActive: { borderColor: "#1abc9c", backgroundColor: "#f0fdf9" },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#bdc3c7",
     justifyContent: "center",
     alignItems: "center",
+    marginRight: 12,
+    marginTop: 2,
   },
+  radioActive: { borderColor: "#1abc9c" },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#1abc9c" },
+  optionTextWrap: { flex: 1 },
+  optionLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  optionLabel: { fontSize: 14, fontWeight: "600", color: "#2c3e50" },
+  optionSub: { fontSize: 12, color: "#7f8c8d", marginTop: 2 },
 
-  syncingText: {
-    color: "#1abc9c",
-    marginTop: 10,
-    fontSize: 12,
+  // pending badge (orange)
+  pendingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#e67e2222",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
+  pendingBadgeText: { fontSize: 10, color: "#e67e22", fontWeight: "700" },
+
+  // today badge (green)
+  todayBadge: {
+    backgroundColor: "#1abc9c22",
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  todayBadgeText: { fontSize: 11, color: "#1abc9c", fontWeight: "700" },
+
+  rangeContainer: {
+    backgroundColor: "#f8fffe",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 6,
+    borderWidth: 1.5,
+    borderColor: "#1abc9c44",
+  },
+  buttonRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  clearBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: "#ecf0f1",
+    alignItems: "center",
+  },
+  clearBtnText: { fontSize: 14, fontWeight: "700", color: "#7f8c8d" },
+  applyBtn: {
+    flex: 2,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: "#1abc9c",
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+  },
+  applyBtnText: { fontSize: 14, fontWeight: "700", color: "#fff" },
 });
+
+
+
+// import React, { useEffect, useState, useCallback, useMemo, useRef  } from "react";
+// import {
+//   View,
+//   Text,
+//   FlatList,
+//   TouchableOpacity,
+//   StyleSheet,
+//   TextInput,
+//   ActivityIndicator,
+// } from "react-native";
+// import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+// import FontAwesome from "react-native-vector-icons/FontAwesome";
+// import {
+//   getLeads,
+//   searchLeads,
+// } from "../db/database";
+
+// // ---------------- TYPES ----------------
+// export type Lead = {
+//   id: number;
+//   name: string;
+//   phone: string;
+//   status: string;
+//   assignee: string;
+//   source: string;
+//   city?: string;
+//   follow_up_date?: string;
+// };
+
+// type Props = {
+//   onSelectLead: (phone: string) => void;
+//   onOpenReport?: () => void;
+//   onOpenHistory?: () => void;
+// };
+
+// // ---------------- COMPONENT ----------------
+// export default function LeadsScreen({ onSelectLead }: Props) {
+//   const [leads, setLeads] = useState<Lead[]>([]);
+//   const [searchQuery, setSearchQuery] = useState<string>("");
+//   const [loading, setLoading] = useState<boolean>(true);
+//   const [refreshing, setRefreshing] = useState<boolean>(false);
+//   const [selectedFilter, setSelectedFilter] = useState<string>("All");
+
+//   // ---------------- LOAD FROM DB ----------------
+// const loadLeadsFromDB = useCallback(async () => {
+//   try {
+//     const savedLeads = await getLeads();
+//     setLeads(savedLeads);
+//   } catch (err) {
+//     console.error("Error loading leads:", err);
+//   } finally {
+//     setLoading(false);
+//     setRefreshing(false); // ✅ added
+//   }
+// }, []);
+
+//   // ---------------- INITIAL LOAD ----------------
+// const hasAutoRefreshed = useRef(false);
+
+// // ---------------- INITIAL LOAD + ONE-TIME AUTO REFRESH ----------------
+// useEffect(() => {
+//   loadLeadsFromDB();
+
+//   if (!hasAutoRefreshed.current) {
+//     hasAutoRefreshed.current = true;
+//     const timer = setTimeout(async () => {
+//       setRefreshing(true);
+//       await loadLeadsFromDB();
+//       setRefreshing(false);
+//     }, 3000);
+
+//     return () => clearTimeout(timer);
+//   }
+// }, [loadLeadsFromDB]);
+
+//   // ---------------- REFRESH ----------------
+//   const refreshLeads = useCallback(async () => {
+//     setRefreshing(true);
+//     await loadLeadsFromDB();
+//     setRefreshing(false);
+//   }, [loadLeadsFromDB]);
+
+//   // ---------------- SEARCH HANDLER ----------------
+//   const handleSearch = async (text: string) => {
+//     setSearchQuery(text);
+
+//     if (text.trim() === "") {
+//       await loadLeadsFromDB();
+//     } else {
+//       const results = await searchLeads(text);
+//       setLeads(results);
+//     }
+//   };
+
+//   // ---------------- FILTER + SEARCH COMBINED ----------------
+//  const filteredLeads = useMemo(() => {
+//   let filtered = leads;
+
+//   if (selectedFilter === "Interested") {
+//     filtered = filtered.filter((lead) =>
+//       lead.status?.startsWith("Interested")
+//     );
+//   } else if (selectedFilter === "Follow Up") {
+//     filtered = filtered.filter((lead) =>
+//       lead.status?.startsWith("Follow Up")
+//     );
+//   } else if (selectedFilter === "Not Interested") {
+//     filtered = filtered.filter((lead) => lead.status === "Not Interested");
+//   } else if (selectedFilter === "Wrong Number") {
+//     filtered = filtered.filter((lead) => lead.status === "Wrong Number");
+//   }
+
+//   return filtered;
+// }, [leads, selectedFilter]);
+
+//   // ---------------- SOURCE ICON ----------------
+//   const renderSourceIcon = (source: Lead["source"]) => {
+//     switch (source) {
+//       case "fb":
+//         return <FontAwesome name="facebook" size={14} color="#1877F2" />;
+//       case "jd":
+//         return <MaterialIcons name="work" size={14} color="#2C3E50" />;
+//       case "web":
+//         return <MaterialIcons name="public" size={14} color="#27AE60" />;
+//       default:
+//         return <MaterialIcons name="help-outline" size={14} color="#7f8c8d" />;
+//     }
+//   };
+
+//   // ---------------- STATUS BADGE ----------------
+//   const renderStatusBadge = (status: Lead["status"]) => {
+//     let bgColor = "#ecf0f1";
+//     let textColor = "#7f8c8d";
+
+//     switch (status) {
+//       case "Open":
+//         bgColor = "#1abc9c33";
+//         textColor = "#1abc9c";
+//         break;
+//       case "OLD":
+//       case "Not Interested":
+//         bgColor = "#e74c3c33";
+//         textColor = "#e74c3c";
+//         break;
+//       case "Interested":
+//         bgColor = "#2ecc7133";
+//         textColor = "#2ecc71";
+//         break;
+//       case "Follow Up":
+//         bgColor = "#f1c40f33";
+//         textColor = "#f1c40f";
+//         break;
+//       case "Wrong Number":
+//         bgColor = "#95a5a633";
+//         textColor = "#7f8c8d";
+//         break;
+//       default:
+//         bgColor = "#1abc9c33";
+//         textColor = "#1abc9c";
+//     }
+
+//     return (
+//       <View style={[styles.statusBadge, { backgroundColor: bgColor }]}>
+//         <Text style={[styles.statusText, { color: textColor }]} numberOfLines={1}>
+//           {status}
+//         </Text>
+//       </View>
+//     );
+//   };
+
+//   const formatFollowUpDate = (isoString: string | undefined): string | null => {
+//   if (!isoString) return null;
+//   const d = new Date(isoString);
+//   if (isNaN(d.getTime())) return null;
+//   const year = d.getFullYear();
+//   const month = (d.getMonth() + 1).toString().padStart(2, "0");
+//   const day = d.getDate().toString().padStart(2, "0");
+//   let hours = d.getHours();
+//   const mins = d.getMinutes().toString().padStart(2, "0");
+//   const ampm = hours >= 12 ? "PM" : "AM";
+//   hours = hours % 12 || 12;
+//   const hoursStr = hours.toString().padStart(2, "0");
+//   return `${year}-${month}-${day}, ${hoursStr}:${mins} ${ampm}`;
+// };
+
+//   // ---------------- RENDER ----------------
+//   return (
+//     <View style={styles.container}>
+//       {/* SEARCH BAR */}
+//       <View style={styles.searchWrapper}>
+//         <TextInput
+//           placeholder="Search by name or phone..."
+//           placeholderTextColor="#7f8c8d"
+//           style={styles.searchBar}
+//           value={searchQuery}
+//           onChangeText={handleSearch}
+//         />
+
+//         {searchQuery.trim().length === 0 ? (
+//           <MaterialIcons
+//             name="search"
+//             size={22}
+//             color="#7f8c8d"
+//             style={styles.searchIcon}
+//           />
+//         ) : (
+//           <TouchableOpacity
+//             style={styles.clearIcon}
+//             onPress={() => handleSearch("")}
+//           >
+//             <MaterialIcons name="close" size={20} color="#7f8c8d" />
+//           </TouchableOpacity>
+//         )}
+//       </View>
+
+//       {/* FILTER TABS */}
+//       <View style={styles.filterContainer}>
+//         {["All", "Interested", "Not Interested", "Wrong Number"].map(
+//           (filter) => (
+//             <TouchableOpacity
+//               key={filter}
+//               style={[
+//                 styles.filterButton,
+//                 selectedFilter === filter && styles.activeFilterButton,
+//               ]}
+//               onPress={() => setSelectedFilter(filter)}
+//             >
+//               <Text
+//                 style={[
+//                   styles.filterText,
+//                   selectedFilter === filter && styles.activeFilterText,
+//                 ]}
+//               >
+//                 {filter}
+//               </Text>
+//             </TouchableOpacity>
+//           )
+//         )}
+//       </View>
+
+//       {loading ? (
+//         <View style={styles.loadingContainer}>
+//           <ActivityIndicator size="large" color="#1abc9c" />
+//           <Text style={styles.syncingText}>Loading leads...</Text>
+//         </View>
+//       ) : (
+//         <>
+//           {/* TOTAL LEADS */}
+//          <View style={styles.totalLeadsWrapper}>
+//   <MaterialIcons name="groups" size={22} color="#1abc9c" style={styles.totalLeadsIcon} />
+//   <Text style={styles.totalLeadsText}>
+//     Total Leads: {filteredLeads.length}
+//   </Text>
+// </View>
+
+//           <FlatList
+//             data={filteredLeads}
+//             keyExtractor={(item) => item.id.toString()}
+//             contentContainerStyle={styles.list}
+//             refreshing={refreshing}
+//             onRefresh={refreshLeads}
+//             renderItem={({ item }) => (
+//               <TouchableOpacity
+//                 style={styles.card}
+//                 onPress={() => onSelectLead(item.phone)}
+//               >
+//                 <View style={styles.left}>
+//                   <View style={styles.nameRow}>
+//                     <Text style={styles.name} numberOfLines={1}>
+//                       {item.name}
+//                     </Text>
+//                     <View style={styles.separatorLine} />
+//                     {renderSourceIcon(item.source)}
+//                   </View>
+//                   <Text style={styles.phone}>{item.phone || "N/A"}</Text>
+//                   {/* ✅ Follow-up date */}
+// {item.follow_up_date && (
+//   <View style={styles.followUpContainer}>
+//     <MaterialIcons name="calendar-today" size={10} color="#3498db" />
+//     <Text style={styles.followUpText}> {formatFollowUpDate(item.follow_up_date)}</Text>
+//   </View>
+// )}
+
+// {item.city && <Text style={styles.city}>{item.city}</Text>}
+//                   {item.city && <Text style={styles.city}>{item.city}</Text>}
+//                 </View>
+
+//                 <View style={styles.center}>
+//                   {renderStatusBadge(item.status)}
+//                 </View>
+
+//                 <View style={styles.right}>
+//                   <View style={styles.avatar}>
+//                     <MaterialIcons name="person" size={24} color="#fff" />
+//                   </View>
+//                   <Text style={styles.assignee}>
+//                     {item.assignee || "-"}
+//                   </Text>
+//                 </View>
+//               </TouchableOpacity>
+//             )}
+//           />
+//         </>
+//       )}
+//     </View>
+//   );
+// }
+
+// // ---------------- STYLES ----------------
+// const styles = StyleSheet.create({
+//   container: { flex: 1, backgroundColor: "#eef5f4" },
+
+//   searchWrapper: {
+//     position: "relative",
+//     marginHorizontal: 12,
+//     marginVertical: 10,
+//   },
+
+//   searchBar: {
+//     backgroundColor: "#fff",
+//     borderRadius: 12,
+//     paddingHorizontal: 16,
+//     paddingVertical: 10,
+//     fontSize: 14,
+//     color: "#2c3e50",
+//     paddingRight: 40,
+//     elevation: 2,
+//   },
+
+//   searchIcon: { position: "absolute", right: 10, top: 10 },
+
+//   clearIcon: { position: "absolute", right: 10, top: 10 },
+
+//   filterContainer: {
+//     flexDirection: "row",
+//     paddingHorizontal: 10,
+//     marginBottom: 8,
+//     gap: 6,
+//   },
+
+//   filterButton: {
+//     paddingHorizontal: 11,
+//     paddingVertical: 6,
+//     borderRadius: 20,
+//     backgroundColor: "#fff",
+//     borderWidth: 1,
+//     borderColor: "#dcdcdc",
+//   },
+
+//   activeFilterButton: {
+//     backgroundColor: "#1abc9c",
+//     borderColor: "#1abc9c",
+//   },
+
+//   filterText: {
+//     fontSize: 12,
+//     fontWeight: "600",
+//     color: "#7f8c8d",
+//   },
+
+//   activeFilterText: { color: "#fff" },
+
+// totalLeadsWrapper: {
+//   paddingHorizontal: 16,
+//   paddingVertical: 3,
+//   backgroundColor: "#fff",
+//   borderRadius: 12,
+//   marginHorizontal: 12,
+//   marginBottom: 8,
+//   elevation: 2,
+//   flexDirection: "row",    // ✅ icon + text side by side
+//   alignItems: "center",    // ✅ vertically centered
+// },
+
+// totalLeadsIcon: {
+//   position: "absolute",    // ✅ icon pinned to left
+//   left: 16,
+// },
+
+// totalLeadsText: {
+//   fontSize: 14,
+//   fontWeight: "700",
+//   color: "#2c3e50",
+//   flex: 1,                 // ✅ takes full width
+//   textAlign: "center",     // ✅ text centered in remaining space
+// },
+
+//   list: { paddingHorizontal: 12, paddingBottom: 32 },
+
+//   card: {
+//     flexDirection: "row",
+//     backgroundColor: "#fff",
+//     paddingHorizontal: 16,
+//     paddingVertical: 6,
+//     borderRadius: 16,
+//     marginBottom: 8,
+//     elevation: 3,
+//     alignItems: "center",
+//   },
+
+//   left: { flex: 3 },
+
+//   nameRow: {
+//     flexDirection: "row",
+//     alignItems: "center",
+//     gap: 6,
+//   },
+
+//   separatorLine: {
+//     width: 1,
+//     height: 18,
+//     backgroundColor: "#7f8c8d",
+//   },
+
+//   name: {
+//     fontSize: 16,
+//     fontWeight: "700",
+//     color: "#2c3e50",
+//     width: 96,
+//   },
+
+//   phone: {
+//     fontSize: 14,
+//     color: "#7f8c8d",
+//     marginTop: 4,
+//   },
+
+//   city: {
+//     fontSize: 12,
+//     color: "#7f8c8d",
+//     marginTop: 2,
+//   },
+
+//   followUpContainer: {
+//   flexDirection: "row",
+//   alignItems: "center",
+//   marginTop: 2,
+// },
+
+// followUpText: {
+//   fontSize: 10,
+//   color: "#3498db",
+//   fontWeight: "600",
+// },
+
+//   center: { flex: 1, alignItems: "center" },
+  
+//   statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 16, alignSelf: "center", minWidth: 90, maxWidth: 120, marginRight: 26, alignItems: "center", justifyContent: "center" },
+
+//   statusText: {
+//     fontSize: 12,
+//     fontWeight: "700",
+//   },
+
+//   right: { flex: 1, alignItems: "center" },
+
+//   avatar: {
+//     width: 40,
+//     height: 40,
+//     borderRadius: 20,
+//     backgroundColor: "#1abc9c",
+//     justifyContent: "center",
+//     alignItems: "center",
+//     marginBottom: 4,
+//   },
+
+//   assignee: {
+//     fontSize: 12,
+//     color: "#34495e",
+//   },
+
+//   loadingContainer: {
+//     flex: 1,
+//     justifyContent: "center",
+//     alignItems: "center",
+//   },
+
+//   syncingText: {
+//     color: "#1abc9c",
+//     marginTop: 10,
+//     fontSize: 12,
+//   },
+// });
+
 
 
 // import React, { useEffect, useState, useCallback } from "react";
