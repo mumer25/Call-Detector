@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   TextInput,
   FlatList,
+  TouchableOpacity,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,9 +31,10 @@ type LeadTimeline = {
 type TimelineScreenProps = {
   selectedLeadPhone?: string;
   resetTimeline?: boolean;
+  onSelectLead?: (phone: string) => void; // ← added
 };
 
-export default function TimelineScreen({ selectedLeadPhone, resetTimeline }: TimelineScreenProps) {
+export default function TimelineScreen({ selectedLeadPhone, resetTimeline, onSelectLead }: TimelineScreenProps) {
   const [leadsData, setLeadsData] = useState<LeadTimeline[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,53 +53,51 @@ export default function TimelineScreen({ selectedLeadPhone, resetTimeline }: Tim
   }, [selectedLeadPhone, resetTimeline]);
 
   // Load all leads + history
- const loadTimeline = useCallback(async () => {
-  setLoading(true);
-  try {
-    const data = await getAllLeadsWithHistoryAndStatus();
+  const loadTimeline = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getAllLeadsWithHistoryAndStatus();
 
-    // Sort each lead's history by time descending
-    const sortedData = data.map(leadItem => ({
-      ...leadItem,
-      history: leadItem.history.sort(
-        (a: TimelineLog, b: TimelineLog) => new Date(b.time).getTime() - new Date(a.time).getTime()
-      ),
-    }));
+      // Sort each lead's history by time descending
+      const sortedData = data.map(leadItem => ({
+        ...leadItem,
+        history: leadItem.history.sort(
+          (a: TimelineLog, b: TimelineLog) => new Date(b.time).getTime() - new Date(a.time).getTime()
+        ),
+      }));
 
-    // Sort leads themselves by the latest history time
-    sortedData.sort((a, b) => {
-      const aTime = a.history.length ? new Date(a.history[0].time).getTime() : 0;
-      const bTime = b.history.length ? new Date(b.history[0].time).getTime() : 0;
-      return bTime - aTime;
-    });
+      // Sort leads themselves by the latest history time
+      sortedData.sort((a, b) => {
+        const aTime = a.history.length ? new Date(a.history[0].time).getTime() : 0;
+        const bTime = b.history.length ? new Date(b.history[0].time).getTime() : 0;
+        return bTime - aTime;
+      });
 
-    setLeadsData(sortedData);
-  } catch (e) {
-    console.error('Failed to load timeline:', e);
-  } finally {
-    setLoading(false);
-  }
-}, []);
+      setLeadsData(sortedData);
+    } catch (e) {
+      console.error('Failed to load timeline:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadTimeline();
   }, [loadTimeline]);
 
-// Filtered leads based on debounced search
-const filteredLeads = leadsData
-  .filter(lead =>
-    debouncedSearch.length === 0
-      ? true
-      : lead.lead.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        lead.lead.phone.includes(debouncedSearch)
-  )
-  // Sort filtered leads so the most recent log is on top
-  .sort((a, b) => {
-    const aTime = a.history.length ? new Date(a.history[0].time).getTime() : 0;
-    const bTime = b.history.length ? new Date(b.history[0].time).getTime() : 0;
-    return bTime - aTime;
-  });
-
+  // Filtered leads based on debounced search
+  const filteredLeads = leadsData
+    .filter(lead =>
+      debouncedSearch.length === 0
+        ? true
+        : lead.lead.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+          lead.lead.phone.includes(debouncedSearch)
+    )
+    .sort((a, b) => {
+      const aTime = a.history.length ? new Date(a.history[0].time).getTime() : 0;
+      const bTime = b.history.length ? new Date(b.history[0].time).getTime() : 0;
+      return bTime - aTime;
+    });
 
   const normalize = (type: any) => String(type || '').trim().toLowerCase();
 
@@ -188,7 +188,13 @@ const filteredLeads = leadsData
     const { lead, history } = item;
     return (
       <View style={styles.leadSection}>
-        <View style={styles.leadHeader}>
+
+        {/* ── Tappable lead header → opens dialer ── */}
+        <TouchableOpacity
+          style={styles.leadHeader}
+          activeOpacity={0.75}
+          onPress={() => onSelectLead && onSelectLead(lead.phone)}
+        >
           <View style={styles.profileCircle}>
             <Ionicons name="person" size={22} color="#1abc9c" />
           </View>
@@ -196,7 +202,14 @@ const filteredLeads = leadsData
             <Text style={styles.leadName}>{lead.name}</Text>
             <Text style={styles.leadPhone}>{lead.phone}</Text>
           </View>
-        </View>
+          {/* arrow hint — only shown if navigation is wired up */}
+          {onSelectLead && (
+            <View style={styles.dialerHint}>
+              {/* <Ionicons name="call" size={14} color="#1abc9c" /> */}
+              <Ionicons name="chevron-forward" size={16} color="#1abc9c" />
+            </View>
+          )}
+        </TouchableOpacity>
 
         {history.map((log, index) => (
           <View key={log.id} style={styles.timelineRow}>
@@ -205,34 +218,39 @@ const filteredLeads = leadsData
               {index !== history.length - 1 && <View style={styles.verticalLine} />}
             </View>
 
-          <View style={styles.card}>
-  <View style={[styles.statusBadge, { backgroundColor: getBadgeColor(log.type) }]}>
-    <Text style={styles.statusBadgeText}>{getBadgeText(log.type)}</Text>
-  </View>
-   {/* ✅ Show follow up date/time from note */}
-  {log.note && log.note.startsWith("Follow Up:") && (
-    <Text style={styles.noteText}>
-      <Ionicons name="calendar" size={12} color="#1abc9c" style={styles.searchIcon} /> {log.note.replace("Follow Up:", "").trim()}
-    </Text>
-  )}
+            <View style={styles.card}>
+              <View style={[styles.statusBadge, { backgroundColor: getBadgeColor(log.type) }]}>
+                <Text style={styles.statusBadgeText}>{getBadgeText(log.type)}</Text>
+              </View>
 
-  {/* ✅ Regular history note */}
-  {log.note && !log.note.startsWith("Follow Up:") && log.note.trim().length > 0 && (
-    <Text style={styles.noteText}><Ionicons name="document-text-outline" size={12} color="#1abc9c" style={styles.searchIcon} /> {log.note.trim()}</Text>
-  )}
+              {log.note && log.note.startsWith("Follow Up:") && (
+                <Text style={styles.noteText}>
+                  <Ionicons name="calendar" size={12} color="#1abc9c" style={styles.noteIcon} />{' '}
+                  {log.note.replace("Follow Up:", "").trim()}
+                </Text>
+              )}
 
-  {/* ✅ status_note (for status entries) or task_note (for follow up entries) */}
-  {log.leadNote && log.leadNote.trim().length > 0 && (
-    <Text style={styles.noteText}><Ionicons name="document-text-outline" size={12} color="#1abc9c" style={styles.searchIcon} /> {log.leadNote.trim()}</Text>
-  )}
+              {log.note && !log.note.startsWith("Follow Up:") && log.note.trim().length > 0 && (
+                <Text style={styles.noteText}>
+                  <Ionicons name="document-text-outline" size={12} color="#1abc9c" style={styles.noteIcon} />{' '}
+                  {log.note.trim()}
+                </Text>
+              )}
 
-  <Text style={styles.timeText}>
-    {formatTime(log.time)} | {formatDate(log.time)}
-  </Text>
-  {log.duration > 0 && (
-    <Text style={styles.noteText}>Duration: {formatDuration(log.duration)}</Text>
-  )}
-</View>
+              {log.leadNote && log.leadNote.trim().length > 0 && (
+                <Text style={styles.noteText}>
+                  <Ionicons name="document-text-outline" size={12} color="#1abc9c" style={styles.noteIcon} />{' '}
+                  {log.leadNote.trim()}
+                </Text>
+              )}
+
+              <Text style={styles.timeText}>
+                {formatTime(log.time)} | {formatDate(log.time)}
+              </Text>
+              {log.duration > 0 && (
+                <Text style={styles.noteText}>Duration: {formatDuration(log.duration)}</Text>
+              )}
+            </View>
           </View>
         ))}
       </View>
@@ -260,10 +278,10 @@ const filteredLeads = leadsData
       </View>
 
       {loading ? (
-         <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#1abc9c" />
-            <Text style={styles.loadingText}>Loading timeline...</Text>
-          </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1abc9c" />
+          <Text style={styles.loadingText}>Loading timeline...</Text>
+        </View>
       ) : filteredLeads.length === 0 ? (
         <Text style={styles.emptyText}>No interaction history found.</Text>
       ) : (
@@ -285,8 +303,8 @@ const styles = StyleSheet.create({
   searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: '#ccc' },
   searchInput: { flex: 1, height: 40, color: '#000' },
   searchIcon: { marginLeft: 8 },
+  noteIcon: { marginLeft: 0 },
   scrollContent: { paddingHorizontal: 20 },
-  timelineContainer: { padding: 20, paddingTop: 20 },
   timelineRow: { flexDirection: 'row', marginBottom: 30, minHeight: 80 },
   leftColumn: { width: 60, alignItems: 'center' },
   verticalLine: { position: 'absolute', top: 50, bottom: -30, width: 3, backgroundColor: '#3b5353', zIndex: 1 },
@@ -294,28 +312,360 @@ const styles = StyleSheet.create({
   card: { flex: 1, backgroundColor: '#fff', marginLeft: 10, borderRadius: 15, paddingHorizontal: 18, paddingVertical: 15, elevation: 3 },
   statusBadge: { marginTop: 6, paddingHorizontal: 8, borderRadius: 6, alignSelf: 'flex-start' },
   statusBadgeText: { fontSize: 11, fontWeight: '600', color: '#fff' },
-  timeText: { fontSize: 10, color: '#7f8c8d', marginTop: 4,textAlign: 'right' },
+  timeText: { fontSize: 10, color: '#7f8c8d', marginTop: 4, textAlign: 'right' },
   noteText: { marginTop: 6, color: '#555', fontSize: 14 },
   emptyText: { textAlign: 'center', marginTop: 50, color: '#3b5353', fontSize: 16 },
   leadSection: { marginBottom: 40 },
-  leadHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', padding: 12, borderRadius: 14, marginBottom: 20, elevation: 2 },
+
+  // Lead header — now touchable
+  leadHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    padding: 12,
+    borderRadius: 14,
+    marginBottom: 20,
+    elevation: 2,
+  },
   profileCircle: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#e8f8f5', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   leadTextContainer: { flex: 1 },
   leadName: { fontSize: 16, fontWeight: '700', color: '#1e293b' },
   leadPhone: { fontSize: 13, color: '#64748b', marginTop: 2 },
-  loadingContainer: {
-  flex: 1,
-  justifyContent: "center",
-  alignItems: "center",
-  marginTop: 30,
-},
-  loadingText: {
-  marginTop: 10,
-  color: "#1abc9c",
-  fontSize: 14,
-  fontWeight: "500",
-},
+
+  // Call + chevron hint on right side of header
+  dialerHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    gap: 2,
+  },
+
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 30 },
+  loadingText: { marginTop: 10, color: '#1abc9c', fontSize: 14, fontWeight: '500' },
 });
+
+
+
+// import React, { useEffect, useState, useCallback } from 'react';
+// import {
+//   View,
+//   Text,
+//   StyleSheet,
+//   ActivityIndicator,
+//   TextInput,
+//   FlatList,
+// } from 'react-native';
+// import Ionicons from 'react-native-vector-icons/Ionicons';
+// import { SafeAreaView } from 'react-native-safe-area-context';
+// import { getAllLeadsWithHistoryAndStatus } from '../db/database';
+
+// type TimelineLog = {
+//   id: string | number;
+//   number: string;
+//   type: string;
+//   duration: number;
+//   time: string;
+//   note?: string;
+//   status?: string;
+//   leadNote?: string;
+// };
+
+// type LeadTimeline = {
+//   lead: any;
+//   history: TimelineLog[];
+// };
+
+// type TimelineScreenProps = {
+//   selectedLeadPhone?: string;
+//   resetTimeline?: boolean;
+// };
+
+// export default function TimelineScreen({ selectedLeadPhone, resetTimeline }: TimelineScreenProps) {
+//   const [leadsData, setLeadsData] = useState<LeadTimeline[]>([]);
+//   const [loading, setLoading] = useState(true);
+//   const [searchQuery, setSearchQuery] = useState('');
+//   const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
+
+//   // Debounce search input
+//   useEffect(() => {
+//     const handler = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+//     return () => clearTimeout(handler);
+//   }, [searchQuery]);
+
+//   // Prefill search if opened from lead or resetTimeline
+//   useEffect(() => {
+//     if (selectedLeadPhone) setSearchQuery(selectedLeadPhone);
+//     else if (resetTimeline) setSearchQuery('');
+//   }, [selectedLeadPhone, resetTimeline]);
+
+//   // Load all leads + history
+//  const loadTimeline = useCallback(async () => {
+//   setLoading(true);
+//   try {
+//     const data = await getAllLeadsWithHistoryAndStatus();
+
+//     // Sort each lead's history by time descending
+//     const sortedData = data.map(leadItem => ({
+//       ...leadItem,
+//       history: leadItem.history.sort(
+//         (a: TimelineLog, b: TimelineLog) => new Date(b.time).getTime() - new Date(a.time).getTime()
+//       ),
+//     }));
+
+//     // Sort leads themselves by the latest history time
+//     sortedData.sort((a, b) => {
+//       const aTime = a.history.length ? new Date(a.history[0].time).getTime() : 0;
+//       const bTime = b.history.length ? new Date(b.history[0].time).getTime() : 0;
+//       return bTime - aTime;
+//     });
+
+//     setLeadsData(sortedData);
+//   } catch (e) {
+//     console.error('Failed to load timeline:', e);
+//   } finally {
+//     setLoading(false);
+//   }
+// }, []);
+
+//   useEffect(() => {
+//     loadTimeline();
+//   }, [loadTimeline]);
+
+// // Filtered leads based on debounced search
+// const filteredLeads = leadsData
+//   .filter(lead =>
+//     debouncedSearch.length === 0
+//       ? true
+//       : lead.lead.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+//         lead.lead.phone.includes(debouncedSearch)
+//   )
+//   // Sort filtered leads so the most recent log is on top
+//   .sort((a, b) => {
+//     const aTime = a.history.length ? new Date(a.history[0].time).getTime() : 0;
+//     const bTime = b.history.length ? new Date(b.history[0].time).getTime() : 0;
+//     return bTime - aTime;
+//   });
+
+
+//   const normalize = (type: any) => String(type || '').trim().toLowerCase();
+
+//   const getIcon = (type: any) => {
+//     const t = normalize(type);
+//     switch (t) {
+//       case '1':
+//       case 'incoming':
+//         return <Ionicons name="call" size={24} color="#2ecc71" />;
+//       case '2':
+//       case 'outgoing':
+//       case 'call':
+//       case 'dialed':
+//         return <Ionicons name="call-outline" size={24} color="#7f8c8d" />;
+//       case '3':
+//       case 'missed':
+//         return <Ionicons name="call-outline" size={24} color="#e74c3c" />;
+//       case 'whatsapp':
+//         return <Ionicons name="logo-whatsapp" size={24} color="#25D366" />;
+//       case 'followup':
+//       case 'follow-up':
+//         return <Ionicons name="calendar" size={24} color="#3498db" />;
+//       case 'interested':
+//         return <Ionicons name="checkmark-circle" size={24} color="#2ecc71" />;
+//       case 'interested:warm':
+//         return <Ionicons name="checkmark-circle" size={24} color="#2ecc71" />;
+//       case 'interested:hot':
+//         return <Ionicons name="checkmark-circle" size={24} color="#2ecc71" />;
+//       case 'not interested':
+//       case 'not_interested':
+//         return <Ionicons name="close-circle" size={24} color="#e74c3c" />;
+//       default:
+//         return <Ionicons name="calendar-outline" size={24} color="#bdc3c7" />;
+//     }
+//   };
+
+//   const getBadgeColor = (type: any) => {
+//     const t = normalize(type);
+//     switch (t) {
+//       case '1':
+//       case 'incoming':
+//       case 'interested':
+//       case 'interested:warm':
+//       case 'interested:hot':
+//       case 'whatsapp':
+//         return '#2ecc71';
+//       case '3':
+//       case 'missed':
+//       case 'not interested':
+//       case 'not_interested':
+//         return '#e74c3c';
+//       case 'followup':
+//       case 'follow-up':
+//         return '#3498db';
+//       default:
+//         return '#7f8c8d';
+//     }
+//   };
+
+//   const getBadgeText = (type: any) => {
+//     const t = normalize(type);
+//     if (!t) return 'Unknown';
+//     const mapping: Record<string, string> = {
+//       '1': 'Incoming',
+//       incoming: 'Incoming',
+//       '2': 'Call',
+//       outgoing: 'Call',
+//       call: 'Call',
+//       dialed: 'Call',
+//       '3': 'Missed',
+//       missed: 'Missed',
+//       whatsapp: 'WhatsApp',
+//       followup: 'Follow-up',
+//       'follow-up': 'Follow-up',
+//       interested: 'Interested',
+//       'not interested': 'Not Interested',
+//       not_interested: 'Not Interested',
+//     };
+//     return mapping[t] || t.charAt(0).toUpperCase() + t.slice(1);
+//   };
+
+//   const formatDuration = (seconds: number) => `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+//   const formatTime = (time: string) => new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+//   const formatDate = (time: string) => new Date(time).toLocaleDateString();
+
+//   // Render each lead
+//   const renderLead = ({ item }: { item: LeadTimeline }) => {
+//     const { lead, history } = item;
+//     return (
+//       <View style={styles.leadSection}>
+//         <View style={styles.leadHeader}>
+//           <View style={styles.profileCircle}>
+//             <Ionicons name="person" size={22} color="#1abc9c" />
+//           </View>
+//           <View style={styles.leadTextContainer}>
+//             <Text style={styles.leadName}>{lead.name}</Text>
+//             <Text style={styles.leadPhone}>{lead.phone}</Text>
+//           </View>
+//         </View>
+
+//         {history.map((log, index) => (
+//           <View key={log.id} style={styles.timelineRow}>
+//             <View style={styles.leftColumn}>
+//               <View style={styles.iconCircle}>{getIcon(log.type)}</View>
+//               {index !== history.length - 1 && <View style={styles.verticalLine} />}
+//             </View>
+
+//           <View style={styles.card}>
+//   <View style={[styles.statusBadge, { backgroundColor: getBadgeColor(log.type) }]}>
+//     <Text style={styles.statusBadgeText}>{getBadgeText(log.type)}</Text>
+//   </View>
+//    {/* ✅ Show follow up date/time from note */}
+//   {log.note && log.note.startsWith("Follow Up:") && (
+//     <Text style={styles.noteText}>
+//       <Ionicons name="calendar" size={12} color="#1abc9c" style={styles.searchIcon} /> {log.note.replace("Follow Up:", "").trim()}
+//     </Text>
+//   )}
+
+//   {/* ✅ Regular history note */}
+//   {log.note && !log.note.startsWith("Follow Up:") && log.note.trim().length > 0 && (
+//     <Text style={styles.noteText}><Ionicons name="document-text-outline" size={12} color="#1abc9c" style={styles.searchIcon} /> {log.note.trim()}</Text>
+//   )}
+
+//   {/* ✅ status_note (for status entries) or task_note (for follow up entries) */}
+//   {log.leadNote && log.leadNote.trim().length > 0 && (
+//     <Text style={styles.noteText}><Ionicons name="document-text-outline" size={12} color="#1abc9c" style={styles.searchIcon} /> {log.leadNote.trim()}</Text>
+//   )}
+
+//   <Text style={styles.timeText}>
+//     {formatTime(log.time)} | {formatDate(log.time)}
+//   </Text>
+//   {log.duration > 0 && (
+//     <Text style={styles.noteText}>Duration: {formatDuration(log.duration)}</Text>
+//   )}
+// </View>
+//           </View>
+//         ))}
+//       </View>
+//     );
+//   };
+
+//   return (
+//     <SafeAreaView style={styles.container}>
+//       {/* SEARCH HEADER */}
+//       <View style={styles.searchHeader}>
+//         <View style={styles.searchContainer}>
+//           <TextInput
+//             placeholder="Search lead by name or phone..."
+//             placeholderTextColor="#888"
+//             style={styles.searchInput}
+//             value={searchQuery}
+//             onChangeText={setSearchQuery}
+//           />
+//           {searchQuery.length > 0 ? (
+//             <Ionicons name="close-circle" size={20} color="#888" style={styles.searchIcon} onPress={() => setSearchQuery('')} />
+//           ) : (
+//             <Ionicons name="search" size={22} color="#1abc9c" style={styles.searchIcon} />
+//           )}
+//         </View>
+//       </View>
+
+//       {loading ? (
+//          <View style={styles.loadingContainer}>
+//             <ActivityIndicator size="large" color="#1abc9c" />
+//             <Text style={styles.loadingText}>Loading timeline...</Text>
+//           </View>
+//       ) : filteredLeads.length === 0 ? (
+//         <Text style={styles.emptyText}>No interaction history found.</Text>
+//       ) : (
+//         <FlatList
+//           data={filteredLeads}
+//           keyExtractor={(item) => item.lead.phone}
+//           renderItem={renderLead}
+//           contentContainerStyle={styles.scrollContent}
+//         />
+//       )}
+//     </SafeAreaView>
+//   );
+// }
+
+// /* ================== STYLES ================== */
+// const styles = StyleSheet.create({
+//   container: { flex: 1, backgroundColor: '#d1e7e7' },
+//   searchHeader: { paddingVertical: 12, paddingHorizontal: 15 },
+//   searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: '#ccc' },
+//   searchInput: { flex: 1, height: 40, color: '#000' },
+//   searchIcon: { marginLeft: 8 },
+//   scrollContent: { paddingHorizontal: 20 },
+//   timelineContainer: { padding: 20, paddingTop: 20 },
+//   timelineRow: { flexDirection: 'row', marginBottom: 30, minHeight: 80 },
+//   leftColumn: { width: 60, alignItems: 'center' },
+//   verticalLine: { position: 'absolute', top: 50, bottom: -30, width: 3, backgroundColor: '#3b5353', zIndex: 1 },
+//   iconCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', elevation: 4, zIndex: 2 },
+//   card: { flex: 1, backgroundColor: '#fff', marginLeft: 10, borderRadius: 15, paddingHorizontal: 18, paddingVertical: 15, elevation: 3 },
+//   statusBadge: { marginTop: 6, paddingHorizontal: 8, borderRadius: 6, alignSelf: 'flex-start' },
+//   statusBadgeText: { fontSize: 11, fontWeight: '600', color: '#fff' },
+//   timeText: { fontSize: 10, color: '#7f8c8d', marginTop: 4,textAlign: 'right' },
+//   noteText: { marginTop: 6, color: '#555', fontSize: 14 },
+//   emptyText: { textAlign: 'center', marginTop: 50, color: '#3b5353', fontSize: 16 },
+//   leadSection: { marginBottom: 40 },
+//   leadHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', padding: 12, borderRadius: 14, marginBottom: 20, elevation: 2 },
+//   profileCircle: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#e8f8f5', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+//   leadTextContainer: { flex: 1 },
+//   leadName: { fontSize: 16, fontWeight: '700', color: '#1e293b' },
+//   leadPhone: { fontSize: 13, color: '#64748b', marginTop: 2 },
+//   loadingContainer: {
+//   flex: 1,
+//   justifyContent: "center",
+//   alignItems: "center",
+//   marginTop: 30,
+// },
+//   loadingText: {
+//   marginTop: 10,
+//   color: "#1abc9c",
+//   fontSize: 14,
+//   fontWeight: "500",
+// },
+// });
 
 
 

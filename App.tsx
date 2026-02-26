@@ -247,6 +247,7 @@ useEffect(() => {
           <TimelineScreen
             selectedLeadPhone={selectedPhone}
             resetTimeline={resetTimeline}
+            onSelectLead={handleSelectLead}
           />
         )}
         {activeTab === 'history' && <HistoryScreen />}
