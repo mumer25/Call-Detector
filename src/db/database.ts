@@ -234,46 +234,52 @@ export const searchLeads = async (query: string): Promise<any[]> => {
   return leads;
 };
 
-/* ================= SYNC FOLLOW UP TO SERVER ================= */
-const syncFollowUpToServer = async (
+
+
+/* ================= SYNC LEAD TO SERVER (STATUS + FOLLOWUP) ================= */
+const syncLeadToServer = async (
   leadId: number,
-  followUpDateISO: string,
+  followUpDateISO?: string | null,
+  status?: string | null
 ) => {
   try {
-    // ✅ Only send YYYY-MM-DD
-    const dateOnly = followUpDateISO.split("T")[0]; // "2026-02-26"
-
     const url =
       "https://server103.multi-techno.com:8383/ords/ard_holdings/crm_app/Update_followup_date";
 
-    const body = `LEAD_ID=${leadId}&FOLLOW_UP_DATE=${encodeURIComponent(
-      dateOnly
-    )}`;
+    let body = `LEAD_ID=${leadId}`;
 
-    console.log("📡 Calling API (FORM POST):", body);
+    if (followUpDateISO) {
+      const dateOnly = followUpDateISO.split("T")[0];
+      body += `&FOLLOW_UP_DATE=${encodeURIComponent(dateOnly)}`;
+    }
+
+    if (status) {
+      body += `&STATUS=${encodeURIComponent(status)}`;
+    }
+
+    console.log("📡 Calling Combined API:", body);
 
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: body,
+      body,
     });
 
     const text = await response.text();
-    console.log("Status:", response.status);
-    console.log("Response:", text);
+    console.log("Server Response:", text);
 
     if (!response.ok) {
-      console.error("❌ Follow up API error");
+      console.error("❌ API Error");
     } else {
-      console.log("✅ Follow up synced successfully");
+      console.log("✅ Lead synced successfully");
     }
+
   } catch (e) {
-    console.error("❌ Failed to sync follow up:", e);
+    console.error("❌ Failed to sync lead:", e);
   }
 };
-
 /* ================= UPDATE LEAD STATUS ================= */
 export const updateLeadStatusDB = async (
   phone: string,
@@ -306,9 +312,13 @@ export const updateLeadStatusDB = async (
 
       const lead = await getLeadByPhone(phone);
       const entityId = await getEntityId();
-      if (lead?.id && entityId) {
-        await syncFollowUpToServer(lead.id, followUpDateISO);
-      }
+     if (lead?.id && entityId) {
+  await syncLeadToServer(
+    lead.id,
+    lead.follow_up_date ?? null,
+    lead.status ?? null
+  );
+}
 
       return;
     }
@@ -326,6 +336,17 @@ export const updateLeadStatusDB = async (
         [status, now, phone]
       );
     }
+
+    const lead = await getLeadByPhone(phone);
+const entityId = await getEntityId();
+
+if (lead?.id && entityId) {
+  await syncLeadToServer(
+    lead.id,
+    lead.follow_up_date ?? null,
+    lead.status ?? null
+  );
+}
 
   } catch (error) {
     console.error("❌ updateLeadStatusDB error:", error);
