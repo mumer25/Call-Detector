@@ -208,13 +208,18 @@ export default function DialerScreen({ phone, leads, onSelectLead, onOpenTimelin
 
     try {
       await Linking.openURL(whatsappUrl);
-      await insertHistory(null, phone, new Date().toISOString(), 0, "whatsapp");
+      const dbLeads = await getLeads();
+const found = dbLeads.find((l) => normalize(l.phone) === normalize(phone));
+const leadId = found?.id ?? null;
+await insertHistory(leadId, phone, new Date().toISOString(), 0, "whatsapp", note || "");
+loadLeadLogs();
+      // await insertHistory(null, phone, new Date().toISOString(), 0, "whatsapp");
 
-      // ✅ Use new format "2025-02-23, 02:20 PM"
-      const updatedStatus: LeadStatus = `Follow Up: ${formatFollowUpDate(new Date())}`;
-      setPendingStatus(updatedStatus);
-      setShowTick(true);
-      loadLeadLogs();
+      // // ✅ Use new format "2025-02-23, 02:20 PM"
+      // const updatedStatus: LeadStatus = `Follow Up: ${formatFollowUpDate(new Date())}`;
+      // setPendingStatus(updatedStatus);
+      // setShowTick(true);
+      // loadLeadLogs();
     } catch {
       Alert.alert("WhatsApp not available", "Please install WhatsApp or check the phone number format.");
     }
