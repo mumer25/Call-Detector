@@ -17,33 +17,34 @@ export const mapLeadSource = (source?: string): 'fb' | 'jd' | 'web' => {
   return 'web';
 };
 
-// ✅ Wrap transaction in a real Promise so await works correctly
+// Wrap transaction in a real Promise so await works correctly
 const runTransaction = (db: any, items: LeadAPI[]): Promise<void> => {
   return new Promise((resolve, reject) => {
     db.transaction(
       (txn: any) => {
         for (const lead of items) {
-          const phone = lead.phone?.trim() || 'N/A';
+          // const phone = lead.phone?.trim() || 'N/A';
+          const phone = lead.phone?.trim() || `NO_PHONE_${lead.lead_id}`;
           const now = new Date().toISOString();
           const apiName = lead.name || 'Unknown';
           const apiAssignee = lead.assignee || '-';
           const apiSource = mapLeadSource(lead.lead_source);
           const apiStatus = lead.status || '-';
 
-          // 1️⃣ Insert only if new lead
+          // Insert only if new lead
           txn.executeSql(
             `INSERT OR IGNORE INTO leads 
               (id, name, phone, status, status_time, assignee, source, taskName, follow_up_date, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
             [lead.lead_id, apiName, phone, apiStatus, now, apiAssignee, apiSource, now],
-            () => {}, // success callback (required)
+            () => {},
             (_: any, err: any) => {
               console.error('INSERT error:', err);
-              return false; // don't rollback, continue
+              return false;
             }
           );
 
-          // 2️⃣ Update API fields only for existing leads
+          // Update API fields only for existing leads
           txn.executeSql(
             `UPDATE leads SET
                name     = ?,
@@ -52,7 +53,7 @@ const runTransaction = (db: any, items: LeadAPI[]): Promise<void> => {
                source   = ?
              WHERE id = ?`,
             [apiName, phone, apiAssignee, apiSource, lead.lead_id],
-            () => {}, // success callback (required)
+            () => {},
             (_: any, err: any) => {
               console.error('UPDATE error:', err);
               return false;
@@ -62,11 +63,9 @@ const runTransaction = (db: any, items: LeadAPI[]): Promise<void> => {
       },
       (err: any) => {
         console.error('❌ Transaction failed:', err);
-        reject(err); // ✅ transaction error
+        reject(err);
       },
-      () => {
-        resolve(); // ✅ transaction success
-      }
+      () => resolve()
     );
   });
 };
@@ -74,42 +73,184 @@ const runTransaction = (db: any, items: LeadAPI[]): Promise<void> => {
 export const fetchAndStoreLeads = async (): Promise<void> => {
   try {
     const user = await getLoggedInUser();
-    if (!user?.entity_id) return;
+    if (!user?.entity_id) {
+      console.warn('No logged-in user or entity_id missing.');
+      return;
+    }
 
     const db = await openDatabase();
-
     let offset = 0;
     const limit = 5000;
     let hasMore = true;
 
     while (hasMore) {
-      const url = `https://server103.multi-techno.com:8383/ords/ard_holdings/crm_app/get_leads_data?entity_id=${user.entity_id}&offset=${offset}&limit=${limit}`;
-      const response = await fetch(url);
+      const url = `https://server103.multi-techno.com:8383/ords/ard_holdings/crm_app/get_leads_data?ENTITY_ID=${encodeURIComponent(
+        user.entity_id
+      )}&offset=${offset}&limit=${limit}`;
 
-      if (!response.ok) throw new Error('Failed to fetch leads');
+      console.log('Fetching leads URL:', url);
 
-      const data = await response.json();
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          headers: {
+            Accept: 'application/json',
+            // Add Authorization header if your server requires it:
+            // Authorization: `Bearer ${user.token}`,
+          },
+        });
+      } catch (netErr) {
+        console.error('Network fetch error:', netErr);
+        break; // stop the loop on network errors
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('Fetch failed with status', response.status);
+        console.error('Response body:', text);
+        break; // stop the loop on HTTP errors
+      }
+
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        console.error('Failed to parse JSON response:', jsonErr);
+        break;
+      }
+
       const items: LeadAPI[] = data.items || [];
-
       if (items.length === 0) {
         hasMore = false;
         break;
       }
 
-      // ✅ Now properly awaited
       await runTransaction(db, items);
-
       console.log(`✅ Saved batch: offset=${offset}, count=${items.length}`);
 
       hasMore = data.hasMore ?? false;
       offset += limit;
     }
 
-    console.log('✅ All leads synced successfully!');
+    console.log('✅ All leads sync process finished!');
   } catch (err) {
     console.error('❌ Error in fetchAndStoreLeads:', err);
   }
 };
+
+
+// import { getLoggedInUser, openDatabase } from '../db/database';
+
+// type LeadAPI = {
+//   lead_id: number;
+//   name: string;
+//   phone?: string;
+//   status?: string;
+//   assignee?: string;
+//   lead_source?: string;
+// };
+
+// export const mapLeadSource = (source?: string): 'fb' | 'jd' | 'web' => {
+//   if (!source) return 'web';
+//   source = source.toLowerCase();
+//   if (source.includes('facebook')) return 'fb';
+//   if (source.includes('dealer') || source.includes('jd')) return 'jd';
+//   return 'web';
+// };
+
+// // ✅ Wrap transaction in a real Promise so await works correctly
+// const runTransaction = (db: any, items: LeadAPI[]): Promise<void> => {
+//   return new Promise((resolve, reject) => {
+//     db.transaction(
+//       (txn: any) => {
+//         for (const lead of items) {
+//           const phone = lead.phone?.trim() || 'N/A';
+//           const now = new Date().toISOString();
+//           const apiName = lead.name || 'Unknown';
+//           const apiAssignee = lead.assignee || '-';
+//           const apiSource = mapLeadSource(lead.lead_source);
+//           const apiStatus = lead.status || '-';
+
+//           // 1️⃣ Insert only if new lead
+//           txn.executeSql(
+//             `INSERT OR IGNORE INTO leads 
+//               (id, name, phone, status, status_time, assignee, source, taskName, follow_up_date, created_at)
+//              VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
+//             [lead.lead_id, apiName, phone, apiStatus, now, apiAssignee, apiSource, now],
+//             () => {}, // success callback (required)
+//             (_: any, err: any) => {
+//               console.error('INSERT error:', err);
+//               return false; // don't rollback, continue
+//             }
+//           );
+
+//           // 2️⃣ Update API fields only for existing leads
+//           txn.executeSql(
+//             `UPDATE leads SET
+//                name     = ?,
+//                phone    = ?,
+//                assignee = ?,
+//                source   = ?
+//              WHERE id = ?`,
+//             [apiName, phone, apiAssignee, apiSource, lead.lead_id],
+//             () => {}, // success callback (required)
+//             (_: any, err: any) => {
+//               console.error('UPDATE error:', err);
+//               return false;
+//             }
+//           );
+//         }
+//       },
+//       (err: any) => {
+//         console.error('❌ Transaction failed:', err);
+//         reject(err); // ✅ transaction error
+//       },
+//       () => {
+//         resolve(); // ✅ transaction success
+//       }
+//     );
+//   });
+// };
+
+// export const fetchAndStoreLeads = async (): Promise<void> => {
+//   try {
+//     const user = await getLoggedInUser();
+//     if (!user?.entity_id) return;
+
+//     const db = await openDatabase();
+
+//     let offset = 0;
+//     const limit = 5000;
+//     let hasMore = true;
+
+//     while (hasMore) {
+//       const url = `https://server103.multi-techno.com:8383/ords/ard_holdings/crm_app/get_leads_data?entity_id=${user.entity_id}&offset=${offset}&limit=${limit}`;
+//       const response = await fetch(url);
+
+//       if (!response.ok) throw new Error('Failed to fetch leads');
+
+//       const data = await response.json();
+//       const items: LeadAPI[] = data.items || [];
+
+//       if (items.length === 0) {
+//         hasMore = false;
+//         break;
+//       }
+
+//       // ✅ Now properly awaited
+//       await runTransaction(db, items);
+
+//       console.log(`✅ Saved batch: offset=${offset}, count=${items.length}`);
+
+//       hasMore = data.hasMore ?? false;
+//       offset += limit;
+//     }
+
+//     console.log('✅ All leads synced successfully!');
+//   } catch (err) {
+//     console.error('❌ Error in fetchAndStoreLeads:', err);
+//   }
+// };
 
 // import { getLoggedInUser, openDatabase } from '../db/database';
 
